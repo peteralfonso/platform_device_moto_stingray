@@ -1,0 +1,27 @@
+on early-init
+    mount debugfs debugfs /sys/kernel/debug
+
+on fs
+    mount ext4 /dev/block/platform/sdhci-tegra.3/by-name/system /system wait ro
+    mount ext2 /dev/block/platform/sdhci-tegra.3/by-name/userdata /data wait noatime
+    mount ext2 /dev/block/platform/sdhci-tegra.3/by-name/cache /cache wait noatime
+
+on boot
+    mkdir /data/misc/wifi 0770 wifi wifi
+    mkdir /data/misc/wifi/sockets 0770 wifi wifi
+    mkdir /data/misc/dhcp 0770 dhcp dhcp
+    chown dhcp dhcp /data/misc/dhcp
+
+service wpa_supplicant /system/bin/wpa_supplicant \
+    -Dwext -ieth0 -c/data/misc/wifi/wpa_supplicant.conf
+#   we will start as root and wpa_supplicant will switch to user wifi
+#   after setting up the capabilities required for WEXT
+#   user wifi
+#   group wifi inet keystore
+    socket wpa_eth0 dgram 660 wifi wifi
+    disabled
+    oneshot
+
+service dhcpcd /system/bin/dhcpcd -ABKL
+    disabled
+    oneshot

@@ -1,0 +1,4 @@
+/dev/nvos	0666	system	system
+/dev/nvrm	0666	system	system
+/dev/knvmap	0666	system	system
+/dev/nvmap	0666	system	system
