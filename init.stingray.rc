@@ -20,6 +20,10 @@ on boot
     chown compass compass /dev/bmp085
     chmod 660 /dev/bmp085
 
+service nvrm_daemon /system/bin/nvrm_daemon
+    user root
+    onrestart restart servicemanager
+
 service wpa_supplicant /system/bin/wpa_supplicant \
     -Dwext -ieth0 -c/data/misc/wifi/wpa_supplicant.conf
 #   we will start as root and wpa_supplicant will switch to user wifi
