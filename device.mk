@@ -23,4 +23,5 @@ PRODUCT_COPY_FILES += \
 
 PRODUCT_PACKAGES := \
     sensors.stingray \
-    lights.stingray
+    lights.stingray \
+    librs_jni
