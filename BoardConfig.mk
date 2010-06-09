@@ -1,3 +1,5 @@
+TARGET_BOARD_PLATFORM := tegra
+
 TARGET_CPU_ABI := armeabi-v7a
 TARGET_CPU_ABI2 := armeabi
 TARGET_CPU_SMP := true
@@ -24,9 +26,4 @@ USE_E2FSPROGS := true
 BOARD_EGL_CFG := device/moto/stingray/egl.cfg
 BOARD_KERNEL_CMDLINE := mem=448M@0M console=ttyS0,115200n8 tegrapart=mmcblk0=system:3600:10000:800,cache:13600:4000:800,userdata:17600:80000:800 debug
 
-COMMON_DIR := vendor/nvidia/common/
-TARGET_TEGRA_VERSION := ap20
 
-ifeq ($(wildcard $(COMMON_DIR)/TegraConfig.mk),$(COMMON_DIR)/TegraConfig.mk)
-include $(COMMON_DIR)/TegraConfig.mk
-endif
