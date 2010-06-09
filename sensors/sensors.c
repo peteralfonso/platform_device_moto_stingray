@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009 Motorola, Inc.
+ * Copyright (C) 2009-2010 Motorola, Inc.
  * Copyright (C) 2008 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -28,7 +28,10 @@
 #include <linux/input.h>
 #include <linux/uinput.h>
 #include <linux/kxtf9.h>
+#include <linux/max9635.h>
+#include <linux/akm8975.h>
 #include <linux/bmp085.h>
+#include <linux/l3g4200d.h>
 
 #include <cutils/atomic.h>
 #include <cutils/log.h>
@@ -36,7 +39,7 @@
 
 /*****************************************************************************/
 
-#define MAX_NUM_SENSORS 6
+#define MAX_NUM_SENSORS 8
 
 #define SUPPORTED_SENSORS  ((1<<MAX_NUM_SENSORS)-1)
 
@@ -46,6 +49,8 @@
 #define ID_T  (3)
 #define ID_P  (4)
 #define ID_L  (5)
+#define ID_B  (6)
+#define ID_G  (7)
 
 #define SENSORS_ACCELERATION   (1<<ID_A)
 #define SENSORS_MAGNETIC_FIELD (1<<ID_M)
@@ -53,12 +58,16 @@
 #define SENSORS_TEMPERATURE    (1<<ID_T)
 #define SENSORS_PROXIMITY      (1<<ID_P)
 #define SENSORS_LIGHT          (1<<ID_L)
+#define SENSORS_PRESSURE       (1<<ID_B)
+#define SENSORS_GYROSCOPE      (1<<ID_G)
 
-#define MAX_NUM_DRIVERS 4
+#define MAX_NUM_DRIVERS 6
 
-#define ID_LIS  (0)
+#define ID_KXT  (0)
 #define ID_AKM  (1)
-#define ID_SFH  (2)
+#define ID_MAX  (2)
+#define ID_BMP  (3)
+#define ID_STM  (4)
 
 struct driver_t {
     char *name;		/* name reported to input module */
@@ -66,10 +75,12 @@ struct driver_t {
     uint32_t mask;
 };
 
-static const struct driver_t dDriverList[] = {
+static struct driver_t dDriverList[] = {
     {"accelerometer", "/dev/kxtf9", (SENSORS_ACCELERATION) },
-    {"compass", "/dev/akm8973_aot", (SENSORS_MAGNETIC_FIELD | SENSORS_ORIENTATION | SENSORS_TEMPERATURE) },
+    {"compass", "/dev/akm8975_aot", (SENSORS_MAGNETIC_FIELD | SENSORS_ORIENTATION | SENSORS_TEMPERATURE) },
     {"max9635", "", (SENSORS_LIGHT) },
+    {"barometer", "/dev/bmp085", (SENSORS_PRESSURE) },
+    {"gyroscope", "/dev/l3g4200d", (SENSORS_GYROSCOPE) },
 };
 
 /*****************************************************************************/
@@ -95,28 +106,16 @@ struct sensors_data_context_t {
  * The SENSORS Module
  */
 
-/* the SFH7743 is a binary proximity sensor that triggers around 6 cm on
- * this hardware */
-#define PROXIMITY_THRESHOLD_CM  6.0f
-
-/*
- * the AK8973 has a 8-bit ADC but the firmware seems to average 16 samples,
- * or at least makes its calibration on 12-bits values. This increases the
- * resolution by 4 bits.
- *
- * The orientation sensor also seems to have a 1/64 resolution.
- */
-
 static const struct sensor_t sSensorList[] = {
         { "KXTF9 3-axis Accelerometer",
                 "Kionix",
                 1, SENSORS_HANDLE_BASE+ID_A,
                 SENSOR_TYPE_ACCELEROMETER, 4.0f*9.81f, 9.81f/1000.0f, 0.25f, { } },
-        { "AK8973 3-axis Magnetic field sensor",
+        { "AK8975 3-axis Magnetic field sensor",
                 "Asahi Kasei",
                 1, SENSORS_HANDLE_BASE+ID_M,
                 SENSOR_TYPE_MAGNETIC_FIELD, 2000.0f, 1.0f/16.0f, 6.8f, { } },
-        { "AK8973 Temperature sensor",
+        { "AK8975 Temperature sensor",
                 "Asahi Kasei",
                 1, SENSORS_HANDLE_BASE+ID_T,
                 SENSOR_TYPE_TEMPERATURE, 115.0f, 1.6f, 3.0f, { } },
@@ -124,10 +123,18 @@ static const struct sensor_t sSensorList[] = {
                 "Asahi Kasei",
                 1, SENSORS_HANDLE_BASE+ID_O,
                 SENSOR_TYPE_ORIENTATION, 360.0f, 1.0f/64.0f, 7.05f, { } },
-        { "MAX9635 Light sensor",
+        { "Ambient Light sensor",
                 "Maxim",
                 1, SENSORS_HANDLE_BASE+ID_L,
                 SENSOR_TYPE_LIGHT, 27000.0f, 1.0f, 0.0f, { } },
+        { "BMP085 Pressure sensor",
+                "Bosch",
+                1, SENSORS_HANDLE_BASE+ID_B,
+                SENSOR_TYPE_PRESSURE, 125000.0f, 1.0f, 0.0f, { } },
+        { "L3G4200D Gyroscope sensor",
+                "ST Micro",
+                1, SENSORS_HANDLE_BASE+ID_G,
+                SENSOR_TYPE_GYROSCOPE, 27000.0f, 1.0f, 0.0f, { } }, /* XXX: update these values */
 };
 
 static int open_sensors(const struct hw_module_t* module, const char* name,
@@ -178,6 +185,11 @@ const struct sensors_module_t HAL_MODULE_INFO_SYM = {
 #define EVENT_TYPE_TEMPERATURE      ABS_THROTTLE
 #define EVENT_TYPE_PROXIMITY        ABS_DISTANCE
 #define EVENT_TYPE_LIGHT            LED_MISC
+#define EVENT_TYPE_PRESSURE         ABS_PRESSURE
+
+#define EVENT_TYPE_GYRO_P           REL_RX
+#define EVENT_TYPE_GYRO_R           REL_RY
+#define EVENT_TYPE_GYRO_Y           REL_RZ
 
 // 1000 LSG = 1G
 #define LSG                         (1000.0f)
@@ -199,7 +211,14 @@ const struct sensors_module_t HAL_MODULE_INFO_SYM = {
 #define CONVERT_O_P                 (CONVERT_O)
 #define CONVERT_O_R                 (-CONVERT_O)
 
-#define CONVERT_P                   (1.0f/5.0f)
+#define CONVERT_P                   (1.0f/10.0f)
+
+#define CONVERT_G                   (1.0f/64.0f)
+#define CONVERT_G_P                 (CONVERT_G)
+#define CONVERT_G_R                 (CONVERT_G)
+#define CONVERT_G_Y                 (CONVERT_G)
+
+#define CONVERT_B                   (1.0f/100.0f)
 
 #define SENSOR_STATE_MASK           (0x7FFF)
 
@@ -313,6 +332,7 @@ static int uinput_create(char *name)
     ioctl(ufd, UI_SET_ABSBIT, EVENT_TYPE_YAW);
     ioctl(ufd, UI_SET_ABSBIT, EVENT_TYPE_PITCH);
     ioctl(ufd, UI_SET_ABSBIT, EVENT_TYPE_ROLL);
+    ioctl(ufd, UI_SET_ABSBIT, EVENT_TYPE_ORIENT_STATUS);
 
     ioctl(ufd, UI_SET_ABSBIT, EVENT_TYPE_MAGV_X);
     ioctl(ufd, UI_SET_ABSBIT, EVENT_TYPE_MAGV_Y);
@@ -321,6 +341,11 @@ static int uinput_create(char *name)
     ioctl(ufd, UI_SET_ABSBIT, EVENT_TYPE_TEMPERATURE);
     ioctl(ufd, UI_SET_ABSBIT, EVENT_TYPE_PROXIMITY);
     ioctl(ufd, UI_SET_LEDBIT, EVENT_TYPE_LIGHT);
+    ioctl(ufd, UI_SET_ABSBIT, EVENT_TYPE_PRESSURE);
+
+    ioctl(ufd, UI_SET_ABSBIT, EVENT_TYPE_GYRO_P);
+    ioctl(ufd, UI_SET_ABSBIT, EVENT_TYPE_GYRO_R);
+    ioctl(ufd, UI_SET_ABSBIT, EVENT_TYPE_GYRO_Y);
 
     /* no need to filter since drivers already do */
     for (i = 0; i < ABS_MAX; i++) {
@@ -355,15 +380,15 @@ static void *poll_thread(void *arg)
 
     for (i =0; i < MAX_NUM_DRIVERS; i++) {
         int fd = open_input(dDriverList[i].name, O_RDONLY);
-        if (fd < 0) {
+	// Invalidate any device that cannot be opened
+	if (fd < 0) {
             LOGE("invalid file descriptor, fd=%d", fd);
-            for (j = 0; j < i; j++) {
-                close(event_fd[j].fd);
-            }
-            pthread_exit(0);
-        }
-        event_fd[i].fd = fd;
-        event_fd[i].events = POLLIN;
+            event_fd[i].fd = -1;
+            event_fd[i].events = 0;
+        } else {
+            event_fd[i].fd = fd;
+            event_fd[i].events = POLLIN;
+	}
     }
 
     uint32_t new_sensors = 0;
@@ -432,9 +457,33 @@ static void *poll_thread(void *arg)
                                         dev->filter_sensors[ID_T].temperature = event.value;
                                         break;
 
+                                    case EVENT_TYPE_ORIENT_STATUS:
+                                        new_sensors |= SENSORS_ORIENTATION;
+                                        dev->filter_sensors[ID_O].orientation.status = event.value;
+                                        break;
+
                                     case EVENT_TYPE_PROXIMITY:
                                         new_sensors |= SENSORS_PROXIMITY;
                                         dev->filter_sensors[ID_P].distance = event.value;
+                                        break;
+                                    case EVENT_TYPE_PRESSURE:
+                                        new_sensors |= SENSORS_PRESSURE;
+                                        dev->filter_sensors[ID_B].pressure = event.value;
+                                        break;
+                                }
+                            } else if (event.type == EV_REL) {
+                                switch (event.code) {
+                                    case EVENT_TYPE_GYRO_P:
+                                        new_sensors |= SENSORS_GYROSCOPE;
+                                        dev->filter_sensors[ID_G].vector.x = event.value;
+                                        break;
+                                    case EVENT_TYPE_GYRO_R:
+                                        new_sensors |= SENSORS_GYROSCOPE;
+                                        dev->filter_sensors[ID_G].vector.y = event.value;
+                                        break;
+                                    case EVENT_TYPE_GYRO_Y:
+                                        new_sensors |= SENSORS_GYROSCOPE;
+                                        dev->filter_sensors[ID_G].vector.z = event.value;
                                         break;
                                 }
                             } else if (event.type == EV_LED) {
@@ -485,6 +534,8 @@ static void *poll_thread(void *arg)
                                                 dev->filter_sensors[ID_O].orientation.pitch);
                                             send_event(dev->uinput, EV_ABS, EVENT_TYPE_ROLL,
                                                 dev->filter_sensors[ID_O].orientation.roll);
+                                            send_event(dev->uinput, EV_ABS, EVENT_TYPE_ORIENT_STATUS,
+                                                dev->filter_sensors[ID_O].orientation.status);
                                             send_event(dev->uinput, EV_SYN, 0, 0);
                                             break;
                                         case SENSORS_TEMPERATURE:
@@ -502,6 +553,19 @@ static void *poll_thread(void *arg)
                                                 dev->filter_sensors[ID_L].light);
                                             send_event(dev->uinput, EV_SYN, 0, 0);
                                             break;
+                                        case SENSORS_PRESSURE:
+                                            send_event(dev->uinput, EV_ABS, EVENT_TYPE_PRESSURE,
+                                                dev->filter_sensors[ID_B].pressure);
+                                            send_event(dev->uinput, EV_SYN, 0, 0);
+                                            break;
+                                        case SENSORS_GYROSCOPE:
+                                            send_event(dev->uinput, EV_REL, EVENT_TYPE_GYRO_P,
+                                                dev->filter_sensors[ID_G].vector.x);
+                                            send_event(dev->uinput, EV_REL, EVENT_TYPE_GYRO_R,
+                                                dev->filter_sensors[ID_G].vector.y);
+                                            send_event(dev->uinput, EV_REL, EVENT_TYPE_GYRO_Y,
+                                                dev->filter_sensors[ID_G].vector.z);
+                                            send_event(dev->uinput, EV_SYN, 0, 0);
                                     }
                                 }
                             }
@@ -584,7 +648,7 @@ static int control__activate(struct sensors_control_context_t *dev,
         //LOGD("%s: changed_enabled=%d", __PRETTY_FUNCTION__, changed_enabled);
 
         if (changed_enabled & SENSORS_ACCELERATION) {
-            int fd = open_dev(dev, ID_LIS);
+            int fd = open_dev(dev, ID_KXT);
             if (fd >= 0) {
                 flags = (new_enabled & SENSORS_ACCELERATION) ? 1 : 0;
                 //LOGD("KXTF9_IOCTL_SET_ENABLE: flag = %d", flags);
@@ -592,25 +656,9 @@ static int control__activate(struct sensors_control_context_t *dev,
                     LOGE("KXTF9_IOCTL_SET_ENABLE error (%s)", strerror(errno));
                     err = -errno;
                 }
-                close_dev(dev, ID_LIS, new_enabled);
+                close_dev(dev, ID_KXT, new_enabled);
             } else {
-                LOGE("ID_LIS open error");
-                err = fd;
-            }
-        }
-
-        if (changed_enabled & SENSORS_PROXIMITY) {
-            int fd = open_dev(dev, ID_SFH);
-            if (fd >= 0) {
-                flags = (new_enabled & SENSORS_PROXIMITY) ? 1 : 0;
-                /*LOGD("SFH7743_IOCTL_SET_ENABLE: flag = %d", flags);
-                if (ioctl(fd, SFH7743_IOCTL_SET_ENABLE, &flags) < 0) {
-                    LOGE("SFH7743_IOCTL_SET_ENABLE error (%s)", strerror(errno));
-                    err = -errno;
-                }*/
-                close_dev(dev, ID_SFH, new_enabled);
-            } else {
-                LOGE("ID_SFH open error");
+                LOGE("ID_KXT open error");
                 err = fd;
             }
         }
@@ -621,7 +669,7 @@ static int control__activate(struct sensors_control_context_t *dev,
                 if (changed_enabled & SENSORS_ORIENTATION) {
                     flags = (new_enabled & SENSORS_ORIENTATION) ? 1 : 0;
                     //LOGD("ECS_IOCTL_APP_SET_MFLAG: flag = %d", flags);
-                /*    if (ioctl(fd, ECS_IOCTL_APP_SET_MFLAG, &flags) < 0) {
+                    if (ioctl(fd, ECS_IOCTL_APP_SET_MFLAG, &flags) < 0) {
                         LOGE("ECS_IOCTL_APP_SET_MFLAG error (%s)", strerror(errno));
                     }
                 }
@@ -637,7 +685,7 @@ static int control__activate(struct sensors_control_context_t *dev,
                     //LOGD("ECS_IOCTL_APP_SET_MVFLAG: flag = %d", flags);
                     if (ioctl(fd, ECS_IOCTL_APP_SET_MVFLAG, &flags) < 0) {
                         LOGE("ECS_IOCTL_APP_SET_MVFLAG error (%s)", strerror(errno));
-                    }*/
+                    }
                 }
             } else {
                 LOGE("ID_AKM open error");
@@ -646,9 +694,40 @@ static int control__activate(struct sensors_control_context_t *dev,
             close_dev(dev, ID_AKM, new_enabled);
         }
 
+        if (changed_enabled & SENSORS_PRESSURE) {
+            int fd = open_dev(dev, ID_BMP);
+            if (fd >= 0) {
+                flags = (new_enabled & SENSORS_PRESSURE) ? 1 : 0;
+                //LOGD("BMP085_IOCTL_SET_ENABLE: flag = %d", flags);
+                if (ioctl(fd, BMP085_IOCTL_SET_ENABLE, &flags) < 0) {
+                    LOGE("BMP085_IOCTL_SET_ENABLE error (%s)", strerror(errno));
+                    err = -errno;
+                }
+                close_dev(dev, ID_BMP, new_enabled);
+            } else {
+                LOGE("ID_BMP open error");
+                err = fd;
+            }
+        }
+
+        if (changed_enabled & SENSORS_GYROSCOPE) {
+            int fd = open_dev(dev, ID_STM);
+            if (fd >= 0) {
+                flags = (new_enabled & SENSORS_GYROSCOPE) ? 1 : 0;
+                //LOGD("L3G4200D_IOCTL_SET_ENABLE: flag = %d", flags);
+                if (ioctl(fd, L3G4200D_IOCTL_SET_ENABLE, &flags) < 0) {
+                    LOGE("L3G4200D_IOCTL_SET_ENABLE error (%s)", strerror(errno));
+                    err = -errno;
+                }
+                close_dev(dev, ID_STM, new_enabled);
+            } else {
+                LOGE("ID_STM open error");
+                err = fd;
+            }
+        }
+
         if (err < 0)
             return err;
-
     }
 
     dev->active_sensors = current_active = new_active;
@@ -663,7 +742,7 @@ static int control__set_delay(struct sensors_control_context_t *dev, int32_t ms)
     short sdelay = ms;
     int err = 0;
 
-    int fd = dev->dev_fd[ID_LIS];
+    int fd = dev->dev_fd[ID_KXT];
     if (fd >= 0) {
         //LOGD("KXTF9_IOCTL_SET_DELAY: delay = %d", delay);
         if (ioctl(fd, KXTF9_IOCTL_SET_DELAY, &delay) < 0) {
@@ -674,11 +753,11 @@ static int control__set_delay(struct sensors_control_context_t *dev, int32_t ms)
 
     fd = dev->dev_fd[ID_AKM];
     if (fd >= 0) {
-        /*LOGD("ECS_IOCTL_APP_SET_DELAY: delay = %d", sdelay);
+        //LOGD("ECS_IOCTL_APP_SET_DELAY: delay = %d", sdelay);
         if (ioctl(fd, ECS_IOCTL_APP_SET_DELAY, &sdelay) < 0) {
             LOGE("ECS_IOCTL_APP_SET_DELAY error (%s)", strerror(errno));
             err = -errno;
-        }*/
+        }
     }
 
     return err;
@@ -709,6 +788,10 @@ static int data__data_open(struct sensors_data_context_t *dev, native_handle_t* 
         // change).
         dev->sensors[i].vector.status = SENSOR_STATUS_ACCURACY_HIGH;
     }
+
+    //handle the orientation sensor in a differnt way
+    dev->sensors[ID_O].vector.status = SENSOR_STATUS_UNRELIABLE;
+
     dev->pendingSensors = 0;
     dev->events_fd = dup(handle->data[0]);
     //LOGD("data__data_open: fd = %d", handle->data[0]);
@@ -837,11 +920,27 @@ static int data__poll(struct sensors_data_context_t *dev, sensors_data_t* values
 
                 case EVENT_TYPE_PROXIMITY:
                     new_sensors |= SENSORS_PROXIMITY;
-                    if ((event.value * CONVERT_P) <= PROXIMITY_THRESHOLD_CM) {
-                        dev->sensors[ID_P].distance = 0;
-                    } else {
-                        dev->sensors[ID_P].distance = PROXIMITY_THRESHOLD_CM;
-                    }
+                    dev->sensors[ID_P].distance = event.value * CONVERT_P;
+                    break;
+
+                case EVENT_TYPE_PRESSURE:
+                    new_sensors |= SENSORS_PRESSURE;
+                    dev->sensors[ID_B].pressure = event.value * CONVERT_B;
+                    break;
+            }
+        } else if (event.type == EV_REL) {
+            switch (event.code) {
+                case EVENT_TYPE_GYRO_P:
+                    new_sensors |= SENSORS_GYROSCOPE;
+                    dev->sensors[ID_G].vector.x = event.value * CONVERT_G_P;
+                    break;
+                case EVENT_TYPE_GYRO_R:
+                    new_sensors |= SENSORS_GYROSCOPE;
+                    dev->sensors[ID_G].vector.y = event.value * CONVERT_G_R;
+                    break;
+                case EVENT_TYPE_GYRO_Y:
+                    new_sensors |= SENSORS_GYROSCOPE;
+                    dev->sensors[ID_G].vector.z = event.value * CONVERT_G_Y;
                     break;
             }
         } else if (event.type == EV_LED) {
@@ -922,7 +1021,7 @@ static int open_sensors(const struct hw_module_t* module, const char* name,
         dev->device.open_data_source = control__open_data_source;
         dev->device.close_data_source = control__close_data_source;
         dev->device.activate = control__activate;
-        dev->device.set_delay= control__set_delay;
+        dev->device.set_delay = control__set_delay;
         dev->device.wake = control__wake;
         dev->active_sensors = 0;
         dev->active_drivers= 0;
