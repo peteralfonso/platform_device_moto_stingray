@@ -61,7 +61,7 @@
 #define SENSORS_PRESSURE       (1<<ID_B)
 #define SENSORS_GYROSCOPE      (1<<ID_G)
 
-#define MAX_NUM_DRIVERS 6
+#define MAX_NUM_DRIVERS 5
 
 #define ID_KXT  (0)
 #define ID_AKM  (1)
