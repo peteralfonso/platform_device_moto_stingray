@@ -17,7 +17,7 @@ WIFI_DRIVER_FW_STA_PATH     := "/system/etc/firmware/fw_bcm4329.bin"
 WIFI_DRIVER_FW_AP_PATH      := "/system/etc/firmware/fw_bcm4329_apsta.bin"
 WIFI_DRIVER_MODULE_ARG      := "firmware_path=/system/etc/firmware/fw_bcm4329.bin nvram_path=/proc/calibration"
 WIFI_DRIVER_MODULE_NAME     := "bcm4329"
-WIFI_BAND                   := 802_11_ABG
+WIFI_BAND                   := 802_11_BG
 
 BOARD_USES_GENERIC_AUDIO := true
 USE_CAMERA_STUB := true
