@@ -19,6 +19,20 @@ on boot
     export EXTERNAL_STORAGE /data/media
     mkdir /data/media 0777 system system
 
+# bluetooth
+    # power up/down interface
+    chown bluetooth bluetooth /sys/class/rfkill/rfkill0/type
+    chown bluetooth bluetooth /sys/class/rfkill/rfkill0/state
+    chmod 0660                /sys/class/rfkill/rfkill0/state
+
+    # UART device
+    chown bluetooth bluetooth /dev/ttyHS2
+    chmod 0660                /dev/ttyHS2
+
+    # bluetooth MAC address programming
+    chown bluetooth bluetooth /sys/module/board_stingray/parameters/bdaddr
+    setprop ro.bt.bdaddr_path /sys/module/board_stingray/parameters/bdaddr
+
 # Sensor
     chown compass compass /dev/kxtf9
     chmod 660 /dev/kxtf9
@@ -50,3 +64,9 @@ service bugreport /system/bin/dumpstate -d -v -o /data/storage/bugreports/bugrep
     disabled
     oneshot
     keycodes 115 114
+
+service hciattach /system/bin/brcm_patchram_plus --enable_hci \
+    --baudrate 115200 --patchram /etc/firmware/bcm4329.hcd /dev/ttyHS2
+    user bluetooth
+    group bluetooth net_bt_admin
+    disabled
