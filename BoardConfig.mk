@@ -23,4 +23,6 @@ BOARD_USES_GENERIC_AUDIO := true
 USE_CAMERA_STUB := true
 USE_E2FSPROGS := true
 
+# needed for source compilation of nvidia libraries
+-include vendor/nvidia/proprietary_src/build/definitions.mk
 
