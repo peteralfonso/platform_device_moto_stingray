@@ -1,6 +1,9 @@
 on early-init
     mount debugfs debugfs /sys/kernel/debug
 
+    # for backwards compatibility
+    symlink /data/media /sdcard
+
 on fs
     mount ext4 /dev/block/platform/sdhci-tegra.3/by-name/system /system wait ro
     mount ext4 /dev/block/platform/sdhci-tegra.3/by-name/userdata /data wait noatime
@@ -11,6 +14,10 @@ on boot
     mkdir /data/misc/wifi/sockets 0770 wifi wifi
     mkdir /data/misc/dhcp 0770 dhcp dhcp
     chown dhcp dhcp /data/misc/dhcp
+
+# external storage emulation
+    export EXTERNAL_STORAGE /data/media
+    mkdir /data/media 0777 system system
 
 # Sensor
     chown compass compass /dev/kxtf9
