@@ -23,14 +23,9 @@ BOARD_USES_GENERIC_AUDIO := true
 USE_CAMERA_STUB := true
 USE_E2FSPROGS := true
 
-# needed for source compilation of nvidia libraries
--include vendor/nvidia/proprietary_src/build/definitions.mk
-
 BOARD_HAVE_BLUETOOTH := true
 BOARD_HAVE_BLUETOOTH_BCM := true
 
-BOARD_EGL_CFG := device/moto/stingray/egl.cfg
-BOARD_KERNEL_CMDLINE := mem=448M@0M console=ttyS0,115200n8 tegrapart=mmcblk0=system:3600:10000:800,cache:13600:4000:800,userdata:17600:80000:800 debug
+# needed for source compilation of nvidia libraries
+-include vendor/nvidia/proprietary_src/build/definitions.mk
 
-COMMON_DIR := vendor/nvidia/common/
-TARGET_TEGRA_VERSION := ap20
