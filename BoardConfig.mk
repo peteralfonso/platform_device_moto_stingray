@@ -23,10 +23,9 @@ BOARD_USES_GENERIC_AUDIO := true
 USE_CAMERA_STUB := true
 USE_E2FSPROGS := true
 
-<<<<<<< HEAD
 # needed for source compilation of nvidia libraries
 -include vendor/nvidia/proprietary_src/build/definitions.mk
-=======
+
 BOARD_HAVE_BLUETOOTH := true
 BOARD_HAVE_BLUETOOTH_BCM := true
 
@@ -35,5 +34,3 @@ BOARD_KERNEL_CMDLINE := mem=448M@0M console=ttyS0,115200n8 tegrapart=mmcblk0=sys
 
 COMMON_DIR := vendor/nvidia/common/
 TARGET_TEGRA_VERSION := ap20
->>>>>>> Enable Bluetooth and setup hciattach.
-
