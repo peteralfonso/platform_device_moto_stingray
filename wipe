@@ -1,6 +1,7 @@
 #!/system/bin/sh
 
 stop
+stop keystore
 umount /data
 umount /cache
 make_ext4fs -j 1k /dev/block/platform/sdhci-tegra.3/by-name/userdata
