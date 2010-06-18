@@ -25,4 +25,5 @@ PRODUCT_COPY_FILES += \
 PRODUCT_PACKAGES := \
     sensors.stingray \
     lights.stingray \
-    librs_jni
+    librs_jni \
+    make_ext4fs
