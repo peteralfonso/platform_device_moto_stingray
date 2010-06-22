@@ -40,10 +40,19 @@ on boot
     chmod 660 /dev/max9635
     chown compass compass /dev/bmp085
     chmod 660 /dev/bmp085
+    chown compass compass /dev/akm8975_dev
+    chmod 660 /dev/akm8975_dev
+    chown compass compass /dev/akm8975_aot
+    chmod 660 /dev/akm8975_aot
 
 service nvrm_daemon /system/bin/nvrm_daemon
     user root
     onrestart restart servicemanager
+
+# Ecompass daemon
+service akmd2 /system/bin/akmd2
+    user compass
+    group compass misc input
 
 service wpa_supplicant /system/bin/wpa_supplicant \
     -Dwext -ieth0 -c/data/misc/wifi/wpa_supplicant.conf
