@@ -29,3 +29,5 @@ BOARD_HAVE_BLUETOOTH_BCM := true
 # needed for source compilation of nvidia libraries
 -include vendor/nvidia/proprietary_src/build/definitions.mk
 
+TARGET_RECOVERY_UI_LIB := librecovery_ui_stingray
+
