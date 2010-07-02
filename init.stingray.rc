@@ -17,7 +17,7 @@ on boot
 
 # external storage emulation
     export EXTERNAL_STORAGE /data/media
-    mkdir /data/media 0777 system system
+    mkdir /data/media 0775 system sdcard_rw
 
 # bluetooth
     # power up/down interface
