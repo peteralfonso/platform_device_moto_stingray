@@ -1,0 +1,2 @@
+# This is a large screen device with more memory, so larger vm heaps for it.
+dalvik.vm.heapsize=32m
