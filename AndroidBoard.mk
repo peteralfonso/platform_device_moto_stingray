@@ -43,3 +43,5 @@ COMMON_DIR := vendor/nvidia/common/
 ifeq ($(wildcard $(COMMON_DIR)/TegraBoard.mk),$(COMMON_DIR)/TegraBoard.mk)
 include $(COMMON_DIR)/TegraBoard.mk
 endif
+
+-include vendor/moto/stingray/AndroidBoardVendor.mk

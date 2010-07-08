@@ -31,3 +31,6 @@ BOARD_HAVE_BLUETOOTH_BCM := true
 
 TARGET_RECOVERY_UI_LIB := librecovery_ui_stingray
 
+# needed for BP-flashing updater extensions
+-include vendor/moto/stingray/BoardConfigVendor.mk
+
