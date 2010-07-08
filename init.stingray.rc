@@ -55,6 +55,19 @@ on boot
     chmod 666 /dev/nvhost-mpe
     chmod 666 /dev/nvhost-vi
 
+# GPS
+    #Create location directory, BRCM guci library stores LTO file and read/write
+    # config file.
+    mkdir /data/location 0770 radio radio
+
+# UART Device
+    chown radio radio /dev/ttyHS4
+    chmod 640 /dev/ttyHS4
+
+# broadcom 4750 device
+    chown radio radio /dev/gps_brcm4750
+    chmod 660 /dev/gps_brcm4750
+
 service nvrm_daemon /system/bin/nvrm_daemon
     user root
     onrestart restart servicemanager
@@ -89,3 +102,14 @@ service hciattach /system/bin/brcm_patchram_plus --enable_hci \
     user bluetooth
     group bluetooth net_bt_admin
     disabled
+
+service location /system/bin/location
+    socket gpshal_socket stream 660 radio system
+    socket gps_tcmd stream 660 radio system
+    user radio
+    group radio system mot_accy
+    oneshot
+
+service locDrv /system/bin/brcm_guci_drv -config /system/etc/gpsconfig.xml
+    user radio
+    group radio inet sdcard_rw
