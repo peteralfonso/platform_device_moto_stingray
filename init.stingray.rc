@@ -46,6 +46,15 @@ on boot
     chown compass compass /dev/akm8975_aot
     chmod 660 /dev/akm8975_aot
 
+    chmod 666 /dev/nvhost-ctrl
+    chmod 666 /dev/nvhost-display
+    chmod 666 /dev/nvhost-dsi
+    chmod 666 /dev/nvhost-gr2d
+    chmod 666 /dev/nvhost-gr3d
+    chmod 666 /dev/nvhost-isp
+    chmod 666 /dev/nvhost-mpe
+    chmod 666 /dev/nvhost-vi
+
 service nvrm_daemon /system/bin/nvrm_daemon
     user root
     onrestart restart servicemanager
