@@ -8,7 +8,7 @@ $(call inherit-product-if-exists, vendor/google/products/generic_90mb.mk)
 # Overrides
 PRODUCT_DEVICE := stingray
 PRODUCT_LOCALES += en_US
-PRODUCT_MODEL := Motorola Stingray
+PRODUCT_MODEL := Flatfish # STOPSHIP should be: Motorola Stingray
 PRODUCT_NAME := stingray
 
 DEVICE_PACKAGE_OVERLAYS := device/moto/stingray/overlay
