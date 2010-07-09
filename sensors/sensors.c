@@ -224,24 +224,6 @@ const struct sensors_module_t HAL_MODULE_INFO_SYM = {
 
 /*****************************************************************************/
 
-static const float accel_adjust[9] =
-{
-    0.0, 1.0, 0.0,
-    1.0, 0.0, 0.0,
-    0.0, 0,0, -1.0
-};
-
-
-/* transforms the accelerometer values based on the above tranformation matrix */
-static void transform_accel(float x, float y, float z, float* out_x, float* out_y, float* out_z)
-{
-    *out_x = accel_adjust[0] * x + accel_adjust[3] * y + accel_adjust[6] * z;
-    *out_y = accel_adjust[1] * x + accel_adjust[4] * y + accel_adjust[7] * z;
-    *out_z = accel_adjust[2] * x + accel_adjust[5] * y + accel_adjust[8] * z;
-}
-
-/*****************************************************************************/
-
 static int open_input(char *dev_name, int mode)
 {
     /* scan all input drivers and look for "dev_name" */
@@ -528,14 +510,12 @@ static void *poll_thread(void *arg)
                                     switch (1<<i) {
                                         case SENSORS_ACCELERATION:
                                             if(active_sensors & SENSORS_ACCELERATION) {
-                                                float x, y, z;
-                                                transform_accel(dev->filter_sensors[ID_A].acceleration.x,
-                                                                dev->filter_sensors[ID_A].acceleration.y,
-                                                                dev->filter_sensors[ID_A].acceleration.z,
-                                                                &x, &y, &z);
-                                                send_event(dev->uinput, EV_ABS, EVENT_TYPE_ACCEL_X, x);
-                                                send_event(dev->uinput, EV_ABS, EVENT_TYPE_ACCEL_Y, y);
-                                                send_event(dev->uinput, EV_ABS, EVENT_TYPE_ACCEL_Z, z);
+                                                send_event(dev->uinput, EV_ABS, EVENT_TYPE_ACCEL_X, 
+                                                    dev->filter_sensors[ID_A].acceleration.x);
+                                                send_event(dev->uinput, EV_ABS, EVENT_TYPE_ACCEL_Y, 
+                                                    dev->filter_sensors[ID_A].acceleration.y);
+                                                send_event(dev->uinput, EV_ABS, EVENT_TYPE_ACCEL_Z, 
+                                                    dev->filter_sensors[ID_A].acceleration.z);
                                                 send_event(dev->uinput, EV_SYN, 0, 0);
                                             }
                                             break;
