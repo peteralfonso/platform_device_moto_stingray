@@ -70,6 +70,10 @@ on boot
     chown radio radio /dev/gps_brcm4750
     chmod 660 /dev/gps_brcm4750
 
+# Whisper UART Device
+    chown radio radio /dev/ttyHS0
+    chmod 640 /dev/ttyHS0
+
 # Power Management Settings
     #write /sys/devices/platform/ohci.0/usb2/2-3/power/level auto
     write /sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq 312000
@@ -140,3 +144,7 @@ service tcmd /system/bin/tcmd
 
 service ftmipcd /system/bin/ftmipcd
     oneshot
+
+# Immediately drops to user radio, after starting the real-time thread
+service whisper /system/bin/whisperd
+    group radio system mot_accy
