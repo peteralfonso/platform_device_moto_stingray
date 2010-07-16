@@ -68,6 +68,21 @@ on boot
     chown radio radio /dev/gps_brcm4750
     chmod 660 /dev/gps_brcm4750
 
+# Power Management Settings
+    #write /sys/devices/platform/ohci.0/usb2/2-3/power/level auto
+    write /sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq 312000
+    write /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq 1000000
+    write /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor ondemand
+    write /sys/devices/system/cpu/cpu0/cpufreq/ondemand/up_threshold 93
+    write /sys/devices/system/cpu/cpu0/cpufreq/ondemand/sampling_rate 30000
+    write /sys/devices/system/cpu/cpu1/cpufreq/scaling_min_freq 312000
+    write /sys/devices/system/cpu/cpu1/cpufreq/scaling_max_freq 1000000
+    write /sys/devices/system/cpu/cpu1/cpufreq/scaling_governor ondemand
+    write /sys/devices/system/cpu/cpu1/cpufreq/ondemand/up_threshold 93
+    write /sys/devices/system/cpu/cpu1/cpufreq/ondemand/sampling_rate 30000
+    # Wakelock debug
+    write /sys/module/wakelock/parameters/debug_mask 7
+
 service nvrm_daemon /system/bin/nvrm_daemon
     user root
     onrestart restart servicemanager
