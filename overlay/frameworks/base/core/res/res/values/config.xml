@@ -67,4 +67,7 @@
     <!-- Component name of the service providing geocoder API support. -->
     <string name="config_geocodeProvider">com.google.android.location.GeocodeProvider</string>
 
+    <!-- Set to true for backward compatibility with apps that require external storage. -->
+    <bool name="config_emulateExternalStorage">true</bool>
+
 </resources>
