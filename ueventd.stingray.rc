@@ -2,3 +2,4 @@
 /dev/nvrm	0666	system	system
 /dev/knvmap	0666	system	system
 /dev/nvmap	0666	system	system
+/dev/ov5650	0666	media	camera
