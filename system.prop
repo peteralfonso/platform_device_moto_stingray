@@ -11,3 +11,7 @@ ro.cdma.home.operator.numeric=31020
 persist.ril.modem.ttydevice=/dev/ttyUSB4
 ro.telephony.default_network=4
 
+# The OpenGL ES API level that is natively supported by this device.
+# This is a 16.16 fixed point number
+ro.opengles.version = 131072
+
