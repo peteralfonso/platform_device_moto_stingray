@@ -119,7 +119,7 @@ service dhcpcd /system/bin/dhcpcd -ABKL
     oneshot
 
 # bugreport is triggered by the VOLUME-DOWN and VOLUME-UP keys
-service bugreport /system/bin/dumpstate -d -v -o /data/storage/bugreports/bugreport
+service bugreport /system/bin/dumpstate -d -v -o /data/media/bugreports/bugreport
     disabled
     oneshot
     keycodes 115 114
