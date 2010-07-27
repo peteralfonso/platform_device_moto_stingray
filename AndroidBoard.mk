@@ -4,6 +4,11 @@ include $(CLEAR_VARS)
 PRODUCT_COPY_FILES += \
 	$(LOCAL_PATH)/vold.fstab:system/etc/vold.fstab
 
+file := $(TARGET_OUT_KEYLAYOUT)/cpcap-key.kl
+ALL_PREBUILT += $(file)
+$(file) : $(LOCAL_PATH)/cpcap-key.kl | $(ACP)
+	$(transform-prebuilt-to-target)
+
 include $(CLEAR_VARS)
 
 ifeq ($(TARGET_PREBUILT_KERNEL),)
