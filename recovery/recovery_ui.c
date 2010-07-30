@@ -24,6 +24,7 @@ char* MENU_HEADERS[] = { "Use volume keys or menu/back to highlight; home button
                          NULL };
 
 char* MENU_ITEMS[] = { "reboot system now",
+                       "apply update from USB drive",
                        "wipe data/factory reset",
                        "wipe cache partition",
                        "restart recovery",   // STOPSHIP: remove this option
@@ -72,11 +73,9 @@ int device_handle_key(int key_code, int visible) {
 }
 
 int device_perform_action(int which) {
+    if (which < 4) return which;
     switch (which) {
-        case 0: return ITEM_REBOOT; break;
-        case 1: return ITEM_WIPE_DATA; break;
-        case 2: return ITEM_WIPE_CACHE; break;
-        case 3: exit(0); break;        // STOPSHIP: remove this option
+        case 4: exit(0); break;        // STOPSHIP: remove this option
     }
     return -1;
 }
