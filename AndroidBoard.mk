@@ -49,6 +49,10 @@ ifeq ($(wildcard $(COMMON_DIR)/TegraBoard.mk),$(COMMON_DIR)/TegraBoard.mk)
 include $(COMMON_DIR)/TegraBoard.mk
 endif
 
-include $(LOCAL_PATH)/ril/Android.mk
+subdir_makefiles:= \
+	$(LOCAL_PATH)/ril/Android.mk \
+	$(LOCAL_PATH)/libaudio/Android.mk
+
+include $(subdir_makefiles)
 
 -include vendor/moto/stingray/AndroidBoardVendor.mk
