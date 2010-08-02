@@ -19,7 +19,7 @@
 #include "recovery_ui.h"
 #include "common.h"
 
-char* MENU_HEADERS[] = { "Use volume keys or menu/back to highlight; home button to select.",
+char* MENU_HEADERS[] = { "Use volume keys to highlight; power button to select.",
                          "",
                          NULL };
 
@@ -35,16 +35,17 @@ int device_recovery_start() {
 }
 
 int device_toggle_display(volatile char* key_pressed, int key_code) {
-    return key_pressed[KEY_VOLUMEUP] && key_code == KEY_MENU;
+    // hold power key and press volume-up
+    return key_pressed[KEY_END] && key_code == KEY_VOLUMEUP;
 }
 
 int device_reboot_now(volatile char* key_pressed, int key_code) {
-    // Reboot if the power key is pressed three times in a row, with
+    // Reboot if the power key is pressed five times in a row, with
     // no other keys in between.
     static int presses = 0;
     if (key_code == KEY_END) {   // power button
         ++presses;
-        return presses == 3;
+        return presses == 5;
     } else {
         presses = 0;
         return 0;
@@ -56,15 +57,13 @@ int device_handle_key(int key_code, int visible) {
         switch (key_code) {
             case KEY_DOWN:
             case KEY_VOLUMEDOWN:
-            case KEY_BACK:
                 return HIGHLIGHT_DOWN;
 
             case KEY_UP:
             case KEY_VOLUMEUP:
-            case KEY_MENU:
                 return HIGHLIGHT_UP;
 
-            case KEY_HOME:
+            case KEY_END:
                 return SELECT_ITEM;
         }
     }
