@@ -131,6 +131,7 @@ service hciattach /system/bin/brcm_patchram_plus --enable_hci \
 
 service location /system/bin/location
     socket gpshal_socket stream 660 radio system
+    socket location_shim stream 660 system system
     socket gps_tcmd stream 660 radio system
     user radio
     group radio system mot_accy
@@ -154,3 +155,10 @@ service whisper /system/bin/whisperd
 # create virtual SD card at /mnt/sdcard, based on the /data/media directory
 # daemon will drop to user/group system/sdcard_rw after initializing
 service sdcard /system/bin/sdcard /data/media 1000 1015
+
+service motolocation /system/bin/sh /system/bin/am startservice -n com.motorola.android.locationproxy/com.motorola.android.locationproxy.LocationProxyService
+    disabled
+    oneshot
+
+on property:gsm.mot.locatonproxy=start
+    start motolocation
