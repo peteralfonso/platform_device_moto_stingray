@@ -890,6 +890,9 @@ status_t AudioHardware::AudioStreamInTegra::dump(int fd, const Vector<String16>&
 
 status_t AudioHardware::AudioStreamInTegra::setParameters(const String8& keyValuePairs)
 {
+#if 1
+    return NO_ERROR;
+#else
     AudioParameter param = AudioParameter(keyValuePairs);
     String8 key = String8(AudioParameter::keyRouting);
     status_t status = NO_ERROR;
@@ -911,6 +914,7 @@ status_t AudioHardware::AudioStreamInTegra::setParameters(const String8& keyValu
         status = BAD_VALUE;
     }
     return status;
+#endif
 }
 
 String8 AudioHardware::AudioStreamInTegra::getParameters(const String8& keys)
