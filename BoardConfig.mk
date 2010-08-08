@@ -30,6 +30,8 @@ BOARD_HAVE_BLUETOOTH_BCM := true
 
 BOARD_HAVE_GPS := true
 
+USE_OPENGL_RENDERER := true
+
 # needed for source compilation of nvidia libraries
 -include vendor/nvidia/proprietary_src/build/definitions.mk
 
