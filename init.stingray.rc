@@ -143,3 +143,10 @@ service location /system/bin/location
 service locDrv /system/bin/brcm_guci_drv -config /system/etc/gpsconfig.xml
     user radio
     group radio inet sdcard_rw
+
+# STOPSHIP tcmd and ftmipcd should be disabled before ship
+service tcmd /system/bin/tcmd
+    oneshot
+
+service ftmipcd /system/bin/ftmipcd
+    oneshot
