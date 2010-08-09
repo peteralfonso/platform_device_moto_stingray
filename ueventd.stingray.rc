@@ -5,3 +5,4 @@
 /dev/ov5650	0666	media	camera
 /dev/soc2030	0666	media	camera
 /dev/audio*	0660	system	audio
+/dev/tegra_camera	0666	media	camera
