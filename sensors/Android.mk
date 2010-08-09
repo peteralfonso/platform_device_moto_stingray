@@ -22,16 +22,24 @@ ifneq ($(TARGET_SIMULATOR),true)
 # hw/<COPYPIX_HARDWARE_MODULE_ID>.<ro.board.platform>.so
 include $(CLEAR_VARS)
 
-LOCAL_SRC_FILES := sensors.c
+LOCAL_CFLAGS := -DLOG_TAG=\"Sensors\"
 
+LOCAL_SRC_FILES := 						\
+				sensors.c 			\
+				nusensors.cpp 			\
+				InputEventReader.cpp		\
+				SensorBase.cpp			\
+				AccelerationSensor.cpp		\
+				LightSensor.cpp			\
+				AkmSensor.cpp			\
+				PressureSensor.cpp		\
+				GyroSensor.cpp
 
 LOCAL_PRELINK_MODULE := false
 LOCAL_MODULE_PATH := $(TARGET_OUT_SHARED_LIBRARIES)/hw
 
 LOCAL_MODULE_TAGS := optional
-
-LOCAL_SHARED_LIBRARIES := liblog \
-	libcutils
+LOCAL_SHARED_LIBRARIES := liblog libcutils
 
 LOCAL_MODULE := sensors.stingray
 
