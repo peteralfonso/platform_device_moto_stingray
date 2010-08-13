@@ -56,7 +56,7 @@ WIFI_DRIVER_MODULE_ARG      := "firmware_path=/system/etc/firmware/fw_bcm4329.bi
 WIFI_DRIVER_MODULE_NAME     := "bcm4329"
 WIFI_BAND                   := 802_11_ABG
 
-BOARD_USES_GENERIC_AUDIO := false
+BOARD_USES_GENERIC_AUDIO := true
 USE_E2FSPROGS := true
 
 BOARD_HAVE_BLUETOOTH := true
