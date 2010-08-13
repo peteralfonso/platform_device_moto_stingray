@@ -20,18 +20,6 @@ on boot
     export EXTERNAL_STORAGE /data/media
     mkdir /data/media 0775 system sdcard_rw
 
-# modem
-    chown radio radio /dev/ttyUSB0
-    chmod 0640 /dev/ttyUSB0
-    chown radio radio /dev/ttyUSB1
-    chmod 0640 /dev/ttyUSB1
-    chown radio radio /dev/ttyUSB2
-    chmod 0640 /dev/ttyUSB2
-    chown radio radio /dev/ttyUSB3
-    chmod 0640 /dev/ttyUSB3
-    chown radio radio /dev/ttyUSB4
-    chmod 0640 /dev/ttyUSB4
-
 # bluetooth
     # power up/down interface
     chown bluetooth bluetooth /sys/class/rfkill/rfkill0/type
