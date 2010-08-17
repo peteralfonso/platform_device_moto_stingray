@@ -26,23 +26,26 @@
 #ifndef ACCY_DET_H
 #define ACCY_DET_H
 
+#define LOG_TAG "whisperd"
+
+#include <cutils/log.h>
 #include <stdint.h>
 
 #define MAX_IO_TIMEOUT     85   //85 ms
 #define LOG_SIZE_LIMIT 10000
 
-#define LOG_ACCY_FS
+#define LOG_ACCY_ANDROID
 
 #if defined(LOG_ACCY_ANDROID)
 #define DBG_TRACE(fmt,x...) \
                 do \
                 { \
-                    LOGD("whisperd : "fmt" from %s() in %s(%d)\n",## x,__FUNCTION__,__FILE__,__LINE__); \
+                    LOGD(fmt" from %s() in %s(%d)\n",## x,__FUNCTION__,__FILE__,__LINE__); \
                 }while(0)
 #define DBG_ERROR(fmt,x...) \
                 do \
                 { \
-                    LOGE("whisperd : " fmt" from %s() in %s(%d)\n",## x,__FUNCTION__,__FILE__,__LINE__); \
+                    LOGE(fmt" from %s() in %s(%d)\n",## x,__FUNCTION__,__FILE__,__LINE__); \
                 }while(0)
 
 #elif defined(LOG_ACCY_FS)
