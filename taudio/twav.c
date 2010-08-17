@@ -126,7 +126,7 @@ main(int argc, char *argv[])
     printf("> sampling rate %d\n", sampling_rate);
     printf("> channels %d\n", num_channels);
 
-    ofd = open(output, O_WRONLY | O_CREAT);
+    ofd = open(output, O_WRONLY | O_CREAT, 0777);
     FAILIF(ofd < 0, "could not open %s: %s\n", output, strerror(errno));
 
     ifd = open(input, O_RDONLY);
