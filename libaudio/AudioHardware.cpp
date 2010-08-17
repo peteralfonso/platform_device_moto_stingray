@@ -36,7 +36,7 @@
 
 namespace android {
 const uint32_t AudioHardware::inputSamplingRates[] = {
-        8000, 16000, 44100
+    8000, 11025, 22050, 44100
 };
 // ----------------------------------------------------------------------------
 
@@ -306,26 +306,25 @@ status_t AudioHardware::setMasterVolume(float v)
 // always call with mutex held
 status_t AudioHardware::doAudioRouteOrMute(uint32_t device)
 {
-#if 0
-    if (device == (uint32_t)SND_DEVICE_BT || device == (uint32_t)SND_DEVICE_CARKIT) {
-        if (mBluetoothId) {
-            device = mBluetoothId;
-        } else if (!mBluetoothNrec) {
-            device = CPCAP_AUDIO_OUT_SPEAKER;
-        }
+    int fd = open("/dev/audio_ctl", O_RDWR);
+    if (fd < 0) {
+        LOGE("could not open audio_ctl: %s\n", strerror(errno));
+        return NO_ERROR;
     }
-#endif
 
-    {
-        int fd = open("/dev/audio_ctl", O_RDWR);
-        if (fd < 0) {
-            LOGE("could not open audio_ctl: %s\n", strerror(errno));
-            return NO_ERROR;
-        }
-        if (ioctl(fd, CPCAP_AUDIO_OUT_SET_OUTPUT, device) < 0)
-            LOGE("could not set output: %s\n", strerror(errno));
-        close(fd);
-    }
+    if (ioctl(fd, CPCAP_AUDIO_IN_SET_INPUT,
+              device == CPCAP_AUDIO_OUT_SPEAKER ? CPCAP_AUDIO_IN_MIC1 :
+                        CPCAP_AUDIO_IN_MIC2) < 0)
+        LOGE("could not set input: %s\n", strerror(errno));
+
+    struct cpcap_audio_output out;
+    out.id = device;
+    out.on = 1;
+
+    if (ioctl(fd, CPCAP_AUDIO_OUT_SET_OUTPUT, &out) < 0)
+        LOGE("could not set output: %s\n", strerror(errno));
+    close(fd);
+
     return NO_ERROR;
 }
 
@@ -660,10 +659,8 @@ status_t AudioHardware::AudioStreamOutTegra::getRenderPosition(uint32_t *dspFram
 
 AudioHardware::AudioStreamInTegra::AudioStreamInTegra() :
     mHardware(0), mFd(-1), mState(AUDIO_INPUT_CLOSED), mRetryCount(0),
-#if 0
     mFormat(AUDIO_HW_IN_FORMAT), mChannels(AUDIO_HW_IN_CHANNELS),
     mSampleRate(AUDIO_HW_IN_SAMPLERATE), mBufferSize(AUDIO_HW_IN_BUFFERSIZE),
-#endif
     mAcoustics((AudioSystem::audio_in_acoustics)0), mDevices(0)
 {
 }
@@ -672,24 +669,30 @@ status_t AudioHardware::AudioStreamInTegra::set(
         AudioHardware* hw, uint32_t devices, int *pFormat, uint32_t *pChannels, uint32_t *pRate,
         AudioSystem::audio_in_acoustics acoustic_flags)
 {
-#if 1
-    return NO_ERROR;
-#else
-    if (pFormat == 0 || *pFormat != AUDIO_HW_IN_FORMAT) {
+    if (pFormat == 0)
+        return BAD_VALUE;
+    if (*pFormat != AUDIO_HW_IN_FORMAT) {
+        LOGE("wrong in format %d, expecting %lld", *pFormat, AUDIO_HW_IN_FORMAT);
         *pFormat = AUDIO_HW_IN_FORMAT;
         return BAD_VALUE;
     }
-    if (pRate == 0) {
+
+    if (pRate == 0)
         return BAD_VALUE;
-    }
+
     uint32_t rate = hw->getInputSampleRate(*pRate);
     if (rate != *pRate) {
+        LOGE("wrong sample rate %d, expecting %d", *pRate, rate);
         *pRate = rate;
         return BAD_VALUE;
     }
 
-    if (pChannels == 0 || (*pChannels != AudioSystem::CHANNEL_IN_MONO &&
-        *pChannels != AudioSystem::CHANNEL_IN_STEREO)) {
+    if (pChannels == 0)
+        return BAD_VALUE;
+
+    if (*pChannels != AudioSystem::CHANNEL_IN_MONO &&
+        *pChannels != AudioSystem::CHANNEL_IN_STEREO) {
+        LOGE("wrong number of channels %d", *pChannels);
         *pChannels = AUDIO_HW_IN_CHANNELS;
         return BAD_VALUE;
     }
@@ -703,84 +706,60 @@ status_t AudioHardware::AudioStreamInTegra::set(
     }
 
     // open audio input device
-    status_t status = ::open("/dev/msm_pcm_in", O_RDWR);
+    status_t status = ::open("/dev/audio0_in", O_RDWR);
     if (status < 0) {
-        LOGE("Cannot open /dev/msm_pcm_in errno: %d", errno);
+        LOGE("Cannot open /dev/audio0_in: %s", strerror(errno));
         goto Error;
     }
     mFd = status;
 
     // configuration
     LOGV("get config");
-    struct msm_audio_config config;
-    status = ioctl(mFd, AUDIO_GET_CONFIG, &config);
+    struct tegra_audio_in_config config;
+    status = ioctl(mFd, TEGRA_AUDIO_IN_GET_CONFIG, &config);
     if (status < 0) {
-        LOGE("Cannot read config");
+        LOGE("cannot read input config: %s", strerror(errno));
         goto Error;
     }
 
     LOGV("set config");
-    config.channel_count = AudioSystem::popCount(*pChannels);
-    config.sample_rate = *pRate;
+    config.stereo = AudioSystem::popCount(*pChannels) == 2;
+    config.rate = *pRate;
+#if 0
     config.buffer_size = bufferSize();
     config.buffer_count = 2;
-    config.codec_type = CODEC_TYPE_PCM;
-    status = ioctl(mFd, AUDIO_SET_CONFIG, &config);
+#endif
+    status = ioctl(mFd, TEGRA_AUDIO_IN_SET_CONFIG, &config);
     if (status < 0) {
-        LOGE("Cannot set config");
-        if (ioctl(mFd, AUDIO_GET_CONFIG, &config) == 0) {
-            if (config.channel_count == 1) {
-                *pChannels = AudioSystem::CHANNEL_IN_MONO;
-            } else {
+        LOGE("cannot set input config: %s", strerror(errno));
+        if (ioctl(mFd, TEGRA_AUDIO_IN_GET_CONFIG, &config) == 0) {
+            if (config.stereo) {
                 *pChannels = AudioSystem::CHANNEL_IN_STEREO;
+            } else {
+                *pChannels = AudioSystem::CHANNEL_IN_MONO;
             }
-            *pRate = config.sample_rate;
+            *pRate = config.rate;
         }
         goto Error;
     }
 
     LOGV("confirm config");
-    status = ioctl(mFd, AUDIO_GET_CONFIG, &config);
+    status = ioctl(mFd, TEGRA_AUDIO_IN_GET_CONFIG, &config);
     if (status < 0) {
         LOGE("Cannot read config");
         goto Error;
     }
-    LOGV("buffer_size: %u", config.buffer_size);
-    LOGV("buffer_count: %u", config.buffer_count);
-    LOGV("channel_count: %u", config.channel_count);
-    LOGV("sample_rate: %u", config.sample_rate);
+    LOGV("stereo: %d", config.stereo);
+    LOGV("sample rate: %d", config.rate);
 
     mDevices = devices;
     mFormat = AUDIO_HW_IN_FORMAT;
     mChannels = *pChannels;
-    mSampleRate = config.sample_rate;
-    mBufferSize = config.buffer_size;
+    mSampleRate = config.rate;
+    mBufferSize = AUDIO_HW_IN_BUFFERSIZE;
 
     //mHardware->setMicMute_nosync(false);
     mState = AUDIO_INPUT_OPENED;
-
-    if (!acoustic)
-        return NO_ERROR;
-
-    audpre_index = calculate_audpre_table_index(mSampleRate);
-    tx_iir_index = (audpre_index * 2) + (hw->checkOutputStandby() ? 0 : 1);
-    LOGD("audpre_index = %d, tx_iir_index = %d\n", audpre_index, tx_iir_index);
-
-    /**
-     * If audio-preprocessing failed, we should not block record.
-     */
-    int (*msm72xx_set_audpre_params)(int, int);
-    msm72xx_set_audpre_params = (int (*)(int, int))::dlsym(acoustic, "msm72xx_set_audpre_params");
-    status = msm72xx_set_audpre_params(audpre_index, tx_iir_index);
-    if (status < 0)
-        LOGE("Cannot set audpre parameters");
-
-    int (*msm72xx_enable_audpre)(int, int, int);
-    msm72xx_enable_audpre = (int (*)(int, int, int))::dlsym(acoustic, "msm72xx_enable_audpre");
-    mAcoustics = acoustic_flags;
-    status = msm72xx_enable_audpre((int)acoustic_flags, audpre_index, tx_iir_index);
-    if (status < 0)
-        LOGE("Cannot enable audpre");
 
     return NO_ERROR;
 
@@ -790,7 +769,6 @@ Error:
         mFd = -1;
     }
     return status;
-#endif
 }
 
 AudioHardware::AudioStreamInTegra::~AudioStreamInTegra()
@@ -801,9 +779,6 @@ AudioHardware::AudioStreamInTegra::~AudioStreamInTegra()
 
 ssize_t AudioHardware::AudioStreamInTegra::read( void* buffer, ssize_t bytes)
 {
-#if 1
-    return 0;
-#else
     LOGV("AudioStreamInTegra::read(%p, %ld)", buffer, bytes);
     if (!mHardware) return -1;
 
@@ -822,11 +797,6 @@ ssize_t AudioHardware::AudioStreamInTegra::read( void* buffer, ssize_t bytes)
         // force routing to input device
         mHardware->clearCurDevice();
         mHardware->doRouting();
-        if (ioctl(mFd, AUDIO_START, 0)) {
-            LOGE("Error starting record");
-            standby();
-            return -1;
-        }
     }
 
     while (count) {
@@ -841,12 +811,10 @@ ssize_t AudioHardware::AudioStreamInTegra::read( void* buffer, ssize_t bytes)
         }
     }
     return bytes;
-#endif
 }
 
 status_t AudioHardware::AudioStreamInTegra::standby()
 {
-#if 0
     if (mState > AUDIO_INPUT_CLOSED) {
         if (mFd >= 0) {
             ::close(mFd);
@@ -858,7 +826,6 @@ status_t AudioHardware::AudioStreamInTegra::standby()
     // restore output routing if necessary
     mHardware->clearCurDevice();
     mHardware->doRouting();
-#endif
     return NO_ERROR;
 }
 
@@ -890,9 +857,6 @@ status_t AudioHardware::AudioStreamInTegra::dump(int fd, const Vector<String16>&
 
 status_t AudioHardware::AudioStreamInTegra::setParameters(const String8& keyValuePairs)
 {
-#if 1
-    return NO_ERROR;
-#else
     AudioParameter param = AudioParameter(keyValuePairs);
     String8 key = String8(AudioParameter::keyRouting);
     status_t status = NO_ERROR;
@@ -914,7 +878,6 @@ status_t AudioHardware::AudioStreamInTegra::setParameters(const String8& keyValu
         status = BAD_VALUE;
     }
     return status;
-#endif
 }
 
 String8 AudioHardware::AudioStreamInTegra::getParameters(const String8& keys)
