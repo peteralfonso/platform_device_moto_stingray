@@ -51,7 +51,8 @@ endif
 
 subdir_makefiles:= \
 	$(LOCAL_PATH)/ril/Android.mk \
-	$(LOCAL_PATH)/libaudio/Android.mk
+	$(LOCAL_PATH)/libaudio/Android.mk \
+	$(LOCAL_PATH)/taudio/Android.mk
 
 include $(subdir_makefiles)
 
