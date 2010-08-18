@@ -37,7 +37,6 @@
 #include <errno.h>
 #include <linux/netlink.h>
 #include <cutils/properties.h>
-#include <cutils/log.h>
 #include <hardware_legacy/power.h>
 #include <stdlib.h>
 #include <time.h>
@@ -297,8 +296,8 @@ static void accyProtDaemon(void *arg) {
     threadId = pthread_self();
     status = pthread_getschedparam(threadId, &currentPolicy, &sched);
 
-    if (status !=0) {
-       DBG_ERROR("pthread_getschedparam error. erno = %s", strerror(errno));
+    if (status != 0) {
+       DBG_ERROR("pthread_getschedparam error. erno = %s", strerror(status));
        return;
     }
 
@@ -306,13 +305,12 @@ static void accyProtDaemon(void *arg) {
     sched.sched_priority = 70;
 
     status = pthread_setschedparam(threadId, currentPolicy, &sched);
-    if (status !=0) {
-        DBG_ERROR("pthread_setschedparam error. erno = %s", strerror(errno));
+    if (status != 0) {
+        DBG_ERROR("pthread_setschedparam error. erno = %s", strerror(status));
         return;
     }
 
-    // TODO: change user. 
-    //switchUser();
+    switchUser();
 
     while(1) {
         do {
@@ -733,8 +731,7 @@ int main(int argc, char *argv[]) {
 
     retVal = accySpawnThread();
 
-    //TODO: Switch user
-    //switchUser();
+    switchUser();
     waitForUevents();
 
     return 1;
