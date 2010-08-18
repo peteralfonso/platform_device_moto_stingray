@@ -11,3 +11,4 @@
 /dev/ttyUSB2	0640	radio	radio
 /dev/ttyUSB3	0640	radio	radio
 /dev/ttyUSB4	0640	radio	radio
+/dev/cpcap	0600	radio	radio
