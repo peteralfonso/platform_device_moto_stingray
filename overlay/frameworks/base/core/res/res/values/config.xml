@@ -105,4 +105,7 @@
         <item>246</item>
     </integer-array>
 
+    <!-- This device is not "voice capable"; it's data-only. -->
+    <bool name="config_voice_capable">false</bool>
+
 </resources>
