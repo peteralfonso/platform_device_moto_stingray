@@ -90,6 +90,8 @@ on boot
     write /sys/devices/system/cpu/cpu1/cpufreq/ondemand/sampling_rate 30000
     # Wakelock debug
     write /sys/module/wakelock/parameters/debug_mask 7
+    # STOPSHIP 2nd CPU disable for perf bug
+    write /sys/devices/system/cpu/cpu1/online 0
 
 service nvrm_daemon /system/bin/nvrm_daemon
     user root
