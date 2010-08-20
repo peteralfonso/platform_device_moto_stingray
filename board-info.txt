@@ -1,3 +1,3 @@
 require mid=001
 require product=stingray
-require version-bootloader=1014
+require version-bootloader=1015
