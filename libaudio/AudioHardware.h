@@ -129,6 +129,7 @@ private:
     private:
                 AudioHardware* mHardware;
                 int         mFd;
+                int         mFdCtl;
                 int         mStartCount;
                 int         mRetryCount;
                 bool        mStandby;
@@ -168,6 +169,7 @@ private:
     private:
                 AudioHardware* mHardware;
                 int         mFd;
+                int         mFdCtl;
                 int         mState;
                 int         mRetryCount;
                 int         mFormat;

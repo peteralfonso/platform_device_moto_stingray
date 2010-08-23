@@ -289,7 +289,7 @@ status_t AudioHardware::setVoiceVolume(float v)
 status_t AudioHardware::setMasterVolume(float v)
 {
     Mutex::Autolock lock(mLock);
-    int vol = ceil(v * 5.0);
+    int vol = ceil(v * 15.0);
     LOGI("Set master volume to %d.\n", vol);
     /*
     set_volume_rpc(SND_DEVICE_HANDSET, SND_METHOD_VOICE, vol);
@@ -482,7 +482,7 @@ AudioHardware::AudioStreamInTegra *AudioHardware::getActiveInput_l()
 // ----------------------------------------------------------------------------
 
 AudioHardware::AudioStreamOutTegra::AudioStreamOutTegra() :
-    mHardware(0), mFd(-1), mStartCount(0), mRetryCount(0), mStandby(true), mDevices(0)
+    mHardware(0), mFd(-1), mFdCtl(-1), mStartCount(0), mRetryCount(0), mStandby(true), mDevices(0)
 {
 }
 
@@ -522,14 +522,15 @@ status_t AudioHardware::AudioStreamOutTegra::set(
 AudioHardware::AudioStreamOutTegra::~AudioStreamOutTegra()
 {
     if (mFd >= 0) close(mFd);
+    if (mFdCtl >= 0) close(mFdCtl);
 }
 
 ssize_t AudioHardware::AudioStreamOutTegra::write(const void* buffer, size_t bytes)
 {
     // LOGD("AudioStreamOutTegra::write(%p, %u)", buffer, bytes);
-    status_t status = NO_INIT;
-    size_t count = bytes;
-    const uint8_t* p = static_cast<const uint8_t*>(buffer);
+    int status = NO_INIT;
+    unsigned errors;
+    ssize_t written;
 
     if (mStandby) {
         // open driver
@@ -537,36 +538,30 @@ ssize_t AudioHardware::AudioStreamOutTegra::write(const void* buffer, size_t byt
         status = ::open("/dev/audio0_out", O_RDWR);
         if (status < 0) {
             LOGE("Cannot open /dev/audio0_out errno: %d", errno);
-            goto Error;
+            // Simulate audio output timing in case of error
+            usleep(bytes * 1000000 / frameSize() / sampleRate());
+            return status;
         }
-        mFd = status;
 
+        mFdCtl = ::open("/dev/audio0_out_ctl", O_RDWR);
+        if (mFdCtl < 0)
+            LOGE("Could not open audio-output-control: %s\n", strerror(errno));
+
+        mFd = status;
         mStandby = false;
     }
 
-    while (count) {
-        ssize_t written = ::write(mFd, p, count);
-        if (written >= 0) {
-            count -= written;
-            p += written;
-        } else {
-            if (errno != EAGAIN) return written;
-            mRetryCount++;
-            LOGW("EAGAIN - retry");
-        }
+    written = ::write(mFd, buffer, bytes);
+    if (written < 0)
+        LOGE("Error writing %d bytes to output: %s", bytes, strerror(errno));
+    else {
+        if (ioctl(mFdCtl, TEGRA_AUDIO_OUT_GET_ERROR_COUNT, &errors) < 0)
+            LOGE("Could not retrieve playback error count: %s\n", strerror(errno));
+        else if (errors)
+            LOGW("Played %d bytes with %d errors\n", (int)written, errors);
     }
 
-    return bytes;
-
-Error:
-    if (mFd >= 0) {
-        ::close(mFd);
-        mFd = -1;
-    }
-    // Simulate audio output timing in case of error
-    usleep(bytes * 1000000 / frameSize() / sampleRate());
-
-    return status;
+    return written;
 }
 
 status_t AudioHardware::AudioStreamOutTegra::standby()
@@ -658,7 +653,7 @@ status_t AudioHardware::AudioStreamOutTegra::getRenderPosition(uint32_t *dspFram
 // ----------------------------------------------------------------------------
 
 AudioHardware::AudioStreamInTegra::AudioStreamInTegra() :
-    mHardware(0), mFd(-1), mState(AUDIO_INPUT_CLOSED), mRetryCount(0),
+    mHardware(0), mFd(-1), mFdCtl(-1), mState(AUDIO_INPUT_CLOSED), mRetryCount(0),
     mFormat(AUDIO_HW_IN_FORMAT), mChannels(AUDIO_HW_IN_CHANNELS),
     mSampleRate(AUDIO_HW_IN_SAMPLERATE), mBufferSize(AUDIO_HW_IN_BUFFERSIZE),
     mAcoustics((AudioSystem::audio_in_acoustics)0), mDevices(0)
@@ -713,10 +708,18 @@ status_t AudioHardware::AudioStreamInTegra::set(
     }
     mFd = status;
 
+    // open audio input-control device
+    status = ::open("/dev/audio0_in_ctl", O_RDWR);
+    if (status < 0) {
+        LOGE("Cannot open /dev/audio0_in_ctl: %s", strerror(errno));
+        goto Error;
+    }
+    mFdCtl = status;
+
     // configuration
     LOGV("get config");
     struct tegra_audio_in_config config;
-    status = ioctl(mFd, TEGRA_AUDIO_IN_GET_CONFIG, &config);
+    status = ioctl(mFdCtl, TEGRA_AUDIO_IN_GET_CONFIG, &config);
     if (status < 0) {
         LOGE("cannot read input config: %s", strerror(errno));
         goto Error;
@@ -729,10 +732,10 @@ status_t AudioHardware::AudioStreamInTegra::set(
     config.buffer_size = bufferSize();
     config.buffer_count = 2;
 #endif
-    status = ioctl(mFd, TEGRA_AUDIO_IN_SET_CONFIG, &config);
+    status = ioctl(mFdCtl, TEGRA_AUDIO_IN_SET_CONFIG, &config);
     if (status < 0) {
         LOGE("cannot set input config: %s", strerror(errno));
-        if (ioctl(mFd, TEGRA_AUDIO_IN_GET_CONFIG, &config) == 0) {
+        if (ioctl(mFdCtl, TEGRA_AUDIO_IN_GET_CONFIG, &config) == 0) {
             if (config.stereo) {
                 *pChannels = AudioSystem::CHANNEL_IN_STEREO;
             } else {
@@ -743,12 +746,6 @@ status_t AudioHardware::AudioStreamInTegra::set(
         goto Error;
     }
 
-    LOGV("confirm config");
-    status = ioctl(mFd, TEGRA_AUDIO_IN_GET_CONFIG, &config);
-    if (status < 0) {
-        LOGE("Cannot read config");
-        goto Error;
-    }
     LOGV("stereo: %d", config.stereo);
     LOGV("sample rate: %d", config.rate);
 
@@ -768,6 +765,10 @@ Error:
         ::close(mFd);
         mFd = -1;
     }
+    if (mFdCtl >= 0) {
+        ::close(mFdCtl);
+        mFdCtl = -1;
+    }
     return status;
 }
 
@@ -777,13 +778,13 @@ AudioHardware::AudioStreamInTegra::~AudioStreamInTegra()
     standby();
 }
 
-ssize_t AudioHardware::AudioStreamInTegra::read( void* buffer, ssize_t bytes)
+ssize_t AudioHardware::AudioStreamInTegra::read(void* buffer, ssize_t bytes)
 {
-    LOGV("AudioStreamInTegra::read(%p, %ld)", buffer, bytes);
-    if (!mHardware) return -1;
+    ssize_t ret;
+    unsigned errors;
 
-    size_t count = bytes;
-    uint8_t* p = static_cast<uint8_t*>(buffer);
+//  LOGV("AudioStreamInTegra::read(%p, %ld)", buffer, bytes);
+    if (!mHardware) return -1;
 
     if (mState < AUDIO_INPUT_OPENED) {
         Mutex::Autolock lock(mHardware->mLock);
@@ -799,18 +800,16 @@ ssize_t AudioHardware::AudioStreamInTegra::read( void* buffer, ssize_t bytes)
         mHardware->doRouting();
     }
 
-    while (count) {
-        ssize_t bytesRead = ::read(mFd, buffer, count);
-        if (bytesRead >= 0) {
-            count -= bytesRead;
-            p += bytesRead;
-        } else {
-            if (errno != EAGAIN) return bytesRead;
-            mRetryCount++;
-            LOGW("EAGAIN - retrying");
-        }
-    }
-    return bytes;
+    ret = ::read(mFd, buffer, bytes);
+    if (ret < 0)
+        LOGE("Error reading from audio in: %s", strerror(errno));
+
+    if (ioctl(mFdCtl, TEGRA_AUDIO_IN_GET_ERROR_COUNT, &errors) < 0)
+        LOGE("Could not retrieve recording error count: %s\n", strerror(errno));
+    else if (errors)
+        LOGW("Recorded %d bytes with %d errors\n", (int)ret, errors);
+
+    return ret;
 }
 
 status_t AudioHardware::AudioStreamInTegra::standby()
@@ -819,6 +818,10 @@ status_t AudioHardware::AudioStreamInTegra::standby()
         if (mFd >= 0) {
             ::close(mFd);
             mFd = -1;
+        }
+        if (mFdCtl >= 0) {
+            ::close(mFdCtl);
+            mFdCtl = -1;
         }
         mState = AUDIO_INPUT_CLOSED;
     }
