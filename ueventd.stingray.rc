@@ -1,3 +1,4 @@
+# STOPSHIP: restrict the permission on these nodes to just the needed ones.
 /dev/nvos	0666	system	system
 /dev/nvrm	0666	system	system
 /dev/knvmap	0666	system	system
