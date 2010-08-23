@@ -39,7 +39,7 @@ namespace android {
 
 #define AUDIO_HW_IN_SAMPLERATE 11025                  // Default audio input sample rate
 #define AUDIO_HW_IN_CHANNELS (AudioSystem::CHANNEL_IN_MONO) // Default audio input channel mask
-#define AUDIO_HW_IN_BUFFERSIZE (4*4096)               // Default audio input buffer size
+#define AUDIO_HW_IN_BUFFERSIZE (4096)               // Default audio input buffer size
 #define AUDIO_HW_IN_FORMAT (AudioSystem::PCM_16_BIT)  // Default audio input sample format
 
 class AudioHardware : public  AudioHardwareBase
@@ -112,7 +112,7 @@ private:
                                 uint32_t *pRate);
         virtual uint32_t    sampleRate() const { return 44100; }
         // must be 32-bit aligned - driver only seems to like 4800
-        virtual size_t      bufferSize() const { return 4*4096; }
+        virtual size_t      bufferSize() const { return 4096; }
         virtual uint32_t    channels() const { return AudioSystem::CHANNEL_OUT_STEREO; }
         virtual int         format() const { return AudioSystem::PCM_16_BIT; }
         virtual uint32_t    latency() const { return (1000*AUDIO_HW_NUM_OUT_BUF*(bufferSize()/frameSize()))/sampleRate()+AUDIO_HW_OUT_LATENCY_MS; }
