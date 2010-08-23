@@ -77,13 +77,14 @@ static void init_wav_header(struct wav_header *hdr,
 int
 main(int argc, char *argv[])
 {
-    int ifd, ofd, opt;
+    int ifd, ifd_c, ofd, opt;
     const char *name;
     int nr, nw = 0, total = 0;
     int wave = 0;
     const int bits_per_sample = 16;
     int sampling_rate = -1;
     int num_channels = -1;
+    unsigned errors, errors_tot;
 
     struct tegra_audio_in_config cfg;
     struct wav_header hdr;
@@ -121,8 +122,11 @@ main(int argc, char *argv[])
     ifd = open("/dev/audio0_in", O_RDWR);
     FAILIF(ifd < 0, "could not open input: %s\n", strerror(errno));
 
+    ifd_c = open("/dev/audio0_in_ctl", O_RDWR);
+    FAILIF(ifd < 0, "could not open input: %s\n", strerror(errno));
+
     printf("getting audio-input config\n");
-    FAILIF(ioctl(ifd, TEGRA_AUDIO_IN_GET_CONFIG, &cfg) < 0,
+    FAILIF(ioctl(ifd_c, TEGRA_AUDIO_IN_GET_CONFIG, &cfg) < 0,
            "could not get input config: %s\n", strerror(errno));
 
     if (num_channels >= 0 || sampling_rate >= 0) {
@@ -132,7 +136,7 @@ main(int argc, char *argv[])
             cfg.rate = sampling_rate;
         printf("setting audio-input config (stereo %d, rate %d)\n",
                cfg.stereo, cfg.rate);
-        FAILIF(ioctl(ifd, TEGRA_AUDIO_IN_SET_CONFIG, &cfg) < 0,
+        FAILIF(ioctl(ifd_c, TEGRA_AUDIO_IN_SET_CONFIG, &cfg) < 0,
                "could not set input config: %s\n", strerror(errno));
     }
 
@@ -153,21 +157,37 @@ main(int argc, char *argv[])
         FAILIF(lseek(ofd, sizeof(struct wav_header), SEEK_SET) < 0,
                "seek error: %s\n", strerror(errno));
 
+    errors_tot = 0;
     do {
         errno = 0;
         nr = read(ifd, buffer, sizeof(buffer));
         FAILIF(nr < 0, "input read error: %s\n", strerror(errno));
+
+        FAILIF(ioctl(ifd_c, TEGRA_AUDIO_IN_GET_ERROR_COUNT, &errors) < 0,
+               "Could not retrieve error count: %s\n", strerror(errno));
+
         if (!nr) {
             printf("done recording\n");
             break;
         }
 
-        printf("in %d\n", nr);
+        if (!errors)
+            printf("in %d\n", nr);
+        else {
+            printf("in %d (%d errors)\n", nr, errors);
+            errors_tot += errors;
+        }
+
         nw = write(ofd, buffer, nr);
         FAILIF(nw < 0, "Could not copy to output: %s\n", strerror(errno));
         FAILIF(nw != nr, "Mismatch nw = %d nr = %d\n", nw, nr);
         total += nw;
     } while (1);
+
+    FAILIF(ioctl(ifd_c, TEGRA_AUDIO_IN_GET_ERROR_COUNT, &errors) < 0,
+           "Could not retrieve error count: %s\n", strerror(errno));
+
+    printf("recorded with %d errors\n", errors_tot);
 
     if (wave) {
         printf("writing WAV header\n");
