@@ -54,6 +54,8 @@ AkmSensor::AkmSensor()
     // read the actual value of all sensors if they're enabled already
     struct input_absinfo absinfo;
     short flags = 0;
+
+    open_device();
     if (!ioctl(dev_fd, ECS_IOCTL_APP_GET_MVFLAG, &flags)) {
         if (flags)  {
             mEnabled |= 1<<MagneticField;
@@ -85,6 +87,9 @@ AkmSensor::AkmSensor()
             }
         }
     }
+    if (!mEnabled) {
+        close_device();
+    }
 }
 
 AkmSensor::~AkmSensor() {
@@ -105,6 +110,9 @@ int AkmSensor::enable(int32_t handle, int en)
     int err = 0;
 
     if ((uint32_t(newState)<<what) != (mEnabled & (1<<what))) {
+        if (!mEnabled) {
+            open_device();
+        }
         int cmd;
         switch (what) {
             case MagneticField: cmd = ECS_IOCTL_APP_SET_MVFLAG; break;
@@ -118,6 +126,9 @@ int AkmSensor::enable(int32_t handle, int en)
             mEnabled &= ~(1<<what);
             mEnabled |= (uint32_t(flags)<<what);
             update_delay();
+        }
+        if (!mEnabled) {
+            close_device();
         }
     }
     return err;
@@ -156,7 +167,7 @@ int AkmSensor::update_delay()
             }
         }
         short delay = int64_t(wanted) / 1000000;
-        if (!ioctl(dev_fd, ECS_IOCTL_APP_SET_DELAY, &delay)) {
+        if (ioctl(dev_fd, ECS_IOCTL_APP_SET_DELAY, &delay)) {
             return -errno;
         }
     }

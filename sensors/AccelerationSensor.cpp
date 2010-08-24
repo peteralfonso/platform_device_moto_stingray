@@ -42,11 +42,12 @@ AccelerationSensor::AccelerationSensor()
     mPendingEvent.acceleration.status = SENSOR_STATUS_ACCURACY_HIGH;
     memset(mPendingEvent.data, 0x00, sizeof(mPendingEvent.data));
 
+    open_device();
+
     // read the actual value of all sensors if they're enabled already
     struct input_absinfo absinfo;
     int flags = 0;
     if (!ioctl(dev_fd, KXTF9_IOCTL_GET_ENABLE, &flags)) {
-	LOGE("%s: AccelerationSensor GET Enable Flag =%d", __PRETTY_FUNCTION__, flags);
         if (flags)  {
             mEnabled = 1;
             if (!ioctl(data_fd, EVIOCGABS(EVENT_TYPE_ACCEL_X), &absinfo)) {
@@ -60,6 +61,9 @@ AccelerationSensor::AccelerationSensor()
             }
         }
     }
+    if (!mEnabled) {
+        close_device();
+    }
 }
 
 AccelerationSensor::~AccelerationSensor() {
@@ -70,18 +74,23 @@ int AccelerationSensor::enable(int32_t, int en)
     int flags = en ? 1 : 0;
     int err = 0;
     if (flags != mEnabled) {
-		LOGE("%s: AccelerationSensor Enable Flag =%d", __PRETTY_FUNCTION__, flags);
         // don't turn the accelerometer off, if the orientation
         // sensor is enabled
         if (mOrientationEnabled && !en) {
             mEnabled = flags;
             return 0;
         }
+        if (flags) {
+            open_device();
+        }
         err = ioctl(dev_fd, KXTF9_IOCTL_SET_ENABLE, &flags);
         err = err<0 ? -errno : 0;
         LOGE_IF(err, "KXTF9_IOCTL_SET_ENABLE failed (%s)", strerror(-err));
         if (!err) {
             mEnabled = flags;
+        }
+        if (!flags) {
+            close_device();
         }
     }
     return err;
@@ -97,24 +106,33 @@ int AccelerationSensor::enableOrientation(int en)
             mOrientationEnabled = flags;
             return 0;
         }
+
+        if (flags) {
+            open_device();
+        }
         err = ioctl(dev_fd, KXTF9_IOCTL_SET_ENABLE, &flags);
         err = err<0 ? -errno : 0;
         LOGE_IF(err, "KXTF9_IOCTL_SET_ENABLE failed (%s)", strerror(-err));
         if (!err) {
             mOrientationEnabled = flags;
         }
+        if (!flags) {
+            close_device();
+        }
     }
     return err;
 }
 
-int AccelerationSensor::setDelay(int64_t ns)
+int AccelerationSensor::setDelay(int32_t handle, int64_t ns)
 {
     if (ns < 0)
         return -EINVAL;
 
-    short delay = ns / 1000000;
-    if (!ioctl(dev_fd, KXTF9_IOCTL_SET_DELAY, &delay)) {
-        return -errno;
+    if (mEnabled || mOrientationEnabled) {
+        int delay = ns / 1000000;
+        if (ioctl(dev_fd, KXTF9_IOCTL_SET_DELAY, &delay)) {
+            return -errno;
+        }
     }
     return 0;
 }

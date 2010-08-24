@@ -42,23 +42,17 @@ GyroSensor::GyroSensor()
     mPendingEvent.gyro.status = SENSOR_STATUS_ACCURACY_HIGH;
     memset(mPendingEvent.data, 0x00, sizeof(mPendingEvent.data));
 
-    // read the actual value of all sensors if they're enabled already
-    struct input_absinfo absinfo;
+    open_device();
+
     int flags = 0;
     if (!ioctl(dev_fd, L3G4200D_IOCTL_GET_ENABLE, &flags)) {
-	LOGE("%s: GyroSensor GET Enable Flag =%d", __PRETTY_FUNCTION__, flags);
         if (flags)  {
             mEnabled = 1;
-            if (!ioctl(data_fd, EVIOCGABS(EVENT_TYPE_GYRO_P), &absinfo)) {
-                mPendingEvent.gyro.x = absinfo.value * CONVERT_G_P;
-            }
-            if (!ioctl(data_fd, EVIOCGABS(EVENT_TYPE_GYRO_R), &absinfo)) {
-                mPendingEvent.gyro.y = absinfo.value * CONVERT_G_R;
-            }
-            if (!ioctl(data_fd, EVIOCGABS(EVENT_TYPE_GYRO_Y), &absinfo)) {
-                mPendingEvent.gyro.z = absinfo.value * CONVERT_G_Y;
-            }
         }
+    }
+
+    if (!mEnabled) {
+        close_device();
     }
 }
 
@@ -70,24 +64,29 @@ int GyroSensor::enable(int32_t, int en)
     int flags = en ? 1 : 0;
     int err = 0;
     if (flags != mEnabled) {
-	LOGE("%s: GyroSensor SET Enable Flag =%d", __PRETTY_FUNCTION__, flags);
+        if (flags) {
+            open_device();
+        }
         err = ioctl(dev_fd, L3G4200D_IOCTL_SET_ENABLE, &flags);
         err = err<0 ? -errno : 0;
         LOGE_IF(err, "L3G4200D_IOCTL_SET_ENABLE failed (%s)", strerror(-err));
         if (!err) {
             mEnabled = flags;
         }
+        if (!flags) {
+            close_device();
+        }
     }
     return err;
 }
 
-int GyroSensor::setDelay(int64_t ns)
+int GyroSensor::setDelay(int32_t handle, int64_t ns)
 {
     if (ns < 0)
         return -EINVAL;
 
-    short delay = ns / 1000000;
-    if (!ioctl(dev_fd, L3G4200D_IOCTL_SET_DELAY, &delay)) {
+    int delay = ns / 1000000;
+    if (ioctl(dev_fd, L3G4200D_IOCTL_SET_DELAY, &delay)) {
         return -errno;
     }
     return 0;
@@ -106,7 +105,7 @@ int GyroSensor::readEvents(sensors_event_t* data, int count)
 
     while (count && mInputReader.readEvent(&event)) {
         int type = event->type;
-        if (type == EV_ABS) {
+        if (type == EV_REL) {
             processEvent(event->code, event->value);
         } else if (type == EV_SYN) {
             int64_t time = timevalToNano(event->time);

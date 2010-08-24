@@ -41,17 +41,21 @@ PressureSensor::PressureSensor()
     mPendingEvent.type = SENSOR_TYPE_PRESSURE;
     memset(mPendingEvent.data, 0x00, sizeof(mPendingEvent.data));
 
+    open_device();
+
     // read the actual value of all sensors if they're enabled already
     struct input_absinfo absinfo;
     int flags = 0;
     if (!ioctl(dev_fd, BMP085_IOCTL_GET_ENABLE, &flags)) {
-	LOGE("%s: PressureSensor GET Enable Flag =%d", __PRETTY_FUNCTION__, flags);
         if (flags)  {
             mEnabled = 1;
             if (!ioctl(data_fd, EVIOCGABS(EVENT_TYPE_PRESSURE), &absinfo)) {
                 mPendingEvent.pressure = absinfo.value * CONVERT_B;
             }
         }
+    }
+    if (!mEnabled) {
+        close_device();
     }
 }
 
@@ -63,24 +67,29 @@ int PressureSensor::enable(int32_t, int en)
     int flags = en ? 1 : 0;
     int err = 0;
     if (flags != mEnabled) {
-	LOGE("%s: PressureSensor Enable Flag =%d", __PRETTY_FUNCTION__, flags);
+        if (flags) {
+            open_device();
+        }
         err = ioctl(dev_fd, BMP085_IOCTL_SET_ENABLE, &flags);
         err = err<0 ? -errno : 0;
         LOGE_IF(err, "BMP085_IOCTL_SET_ENABLE failed (%s)", strerror(-err));
         if (!err) {
             mEnabled = flags;
         }
+        if (!flags) {
+            close_device();
+        }
     }
     return err;
 }
 
-int PressureSensor::setDelay(int64_t ns)
+int PressureSensor::setDelay(int32_t handle, int64_t ns)
 {
     if (ns < 0)
         return -EINVAL;
 
-    short delay = ns / 1000000;
-    if (!ioctl(dev_fd, BMP085_IOCTL_SET_DELAY, &delay)) {
+    int delay = ns / 1000000;
+    if (ioctl(dev_fd, BMP085_IOCTL_SET_DELAY, &delay)) {
         return -errno;
     }
     return 0;

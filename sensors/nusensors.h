@@ -60,9 +60,9 @@ int init_nusensors(hw_module_t const* module, hw_device_t** device);
 
 #define AKM_DEVICE_NAME             "/dev/akm8975_aot"
 #define ACCELEROMETER_DEVICE_NAME   "/dev/kxtf9"
-#define LIGHTING_DEVICE_NAME	    "/dev/max9635"
-#define BAROMETER_DEVICE_NAME	    "/dev/bmp085"
-#define GYROSCOPE_DEVICE_NAME	    "/dev/l3g4200d"
+#define LIGHTING_DEVICE_NAME        "/dev/max9635"
+#define BAROMETER_DEVICE_NAME       "/dev/bmp085"
+#define GYROSCOPE_DEVICE_NAME       "/dev/l3g4200d"
 
 #define EVENT_TYPE_ACCEL_X          ABS_X
 #define EVENT_TYPE_ACCEL_Y          ABS_Y
@@ -78,14 +78,12 @@ int init_nusensors(hw_module_t const* module, hw_device_t** device);
 #define EVENT_TYPE_MAGV_Y           ABS_HAT0Y
 #define EVENT_TYPE_MAGV_Z           ABS_BRAKE
 
-#define EVENT_TYPE_TEMPERATURE      ABS_THROTTLE
-#define EVENT_TYPE_PROXIMITY        ABS_DISTANCE
 #define EVENT_TYPE_LIGHT            LED_MISC
 #define EVENT_TYPE_PRESSURE         ABS_PRESSURE
 
-#define EVENT_TYPE_GYRO_P           ABS_X
-#define EVENT_TYPE_GYRO_R           ABS_Y
-#define EVENT_TYPE_GYRO_Y           ABS_Z
+#define EVENT_TYPE_GYRO_P           REL_RX
+#define EVENT_TYPE_GYRO_R           REL_RY
+#define EVENT_TYPE_GYRO_Y           REL_RZ
 
 // 1000 LSG = 1G
 #define LSG                         (1000.0f)
@@ -107,9 +105,8 @@ int init_nusensors(hw_module_t const* module, hw_device_t** device);
 #define CONVERT_O_P                 (CONVERT_O)
 #define CONVERT_O_R                 (-CONVERT_O)
 
-#define CONVERT_P                   (1.0f/5.0f)
-
-#define CONVERT_G                   (1.0f/64.0f)
+// conversion of angular velocity(millidegrees/second) to rad/s
+#define CONVERT_G                   (((1.0f *8.75f)/1000) * 0.0174f)
 #define CONVERT_G_P                 (CONVERT_G)
 #define CONVERT_G_R                 (CONVERT_G)
 #define CONVERT_G_Y                 (CONVERT_G)

@@ -42,8 +42,7 @@ public:
     virtual ~AccelerationSensor();
 
     virtual int readEvents(sensors_event_t* data, int count);
-    virtual int setDelay(int64_t ns);
-
+    virtual int setDelay(int32_t handle, int64_t ns);
     virtual int enable(int32_t handle, int enabled);
     int enableOrientation(int enabled);
     void processEvent(int code, int value);
