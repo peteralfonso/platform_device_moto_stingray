@@ -31,8 +31,8 @@ extern "C" {
 
 namespace android {
 
-#include "cpcap_audio.h"
-#include "tegra_audio.h"
+#include <linux/cpcap_audio.h>
+#include <linux/tegra_audio.h>
 
 #define AUDIO_HW_NUM_OUT_BUF 4
 #define AUDIO_HW_OUT_LATENCY_MS 0

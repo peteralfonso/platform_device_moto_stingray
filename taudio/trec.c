@@ -9,7 +9,7 @@
 #include <sys/stat.h>
 #include <sys/ioctl.h>
 
-#include "tegra_audio.h"
+#include <linux/tegra_audio.h>
 
 #define FAILIF(x, ...) do if (x) { \
     fprintf(stderr, __VA_ARGS__);  \

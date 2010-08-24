@@ -7,8 +7,8 @@
 #include <errno.h>
 
 #include <sys/ioctl.h>
-#include "cpcap_audio.h"
-#include "tegra_audio.h"
+#include <linux/cpcap_audio.h>
+#include <linux/tegra_audio.h>
 
 #define FAILIF(x, ...) do if (x) { \
     fprintf(stderr, __VA_ARGS__);  \
