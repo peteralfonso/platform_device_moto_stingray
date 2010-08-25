@@ -42,14 +42,19 @@ const uint32_t AudioHardware::inputSamplingRates[] = {
 
 AudioHardware::AudioHardware() :
     mInit(false), mMicMute(true), mBluetoothNrec(true), mBluetoothId(0),
-    mOutput(0), mCurSndDevice(-1)
+    mOutput(0), mCurOutDevice(-1), mCurInDevice(-1)
 {
     int fd = ::open("/dev/audio_ctl", O_RDWR);
     if (fd >= 0) {
-        if (::ioctl(fd, CPCAP_AUDIO_OUT_GET_OUTPUT, &mCurSndDevice))
-            LOGE("Could not open audio_ctl: %s", strerror(errno));
+        if (::ioctl(fd, CPCAP_AUDIO_OUT_GET_OUTPUT, &mCurOutDevice))
+            LOGE("Could not retrieve output device: %s", strerror(errno));
         else
-            LOGI("current output device: %d", mCurSndDevice);
+            LOGI("current output device: %d", mCurOutDevice);
+
+        if (::ioctl(fd, CPCAP_AUDIO_IN_GET_INPUT, &mCurInDevice))
+            LOGE("Could not retrieve input device: %s", strerror(errno));
+        else
+            LOGI("current input device: %d", mCurInDevice);
     }
     mInit = true;
 }
@@ -260,6 +265,7 @@ size_t AudioHardware::getInputBufferSize(uint32_t sampleRate, int format, int ch
 
 status_t AudioHardware::setVoiceVolume(float v)
 {
+#if 0
     if (v < 0.0) {
         LOGW("setVoiceVolume(%f) under 0.0, assuming 0.0\n", v);
         v = 0.0;
@@ -283,6 +289,7 @@ status_t AudioHardware::setVoiceVolume(float v)
             LOGE("could not set volume: %s\n", strerror(errno));
         close(fd);
     }
+#endif
     return NO_ERROR;
 }
 
@@ -291,20 +298,23 @@ status_t AudioHardware::setMasterVolume(float v)
     Mutex::Autolock lock(mLock);
     int vol = ceil(v * 15.0);
     LOGI("Set master volume to %d.\n", vol);
-    /*
-    set_volume_rpc(SND_DEVICE_HANDSET, SND_METHOD_VOICE, vol);
-    set_volume_rpc(SND_DEVICE_SPEAKER, SND_METHOD_VOICE, vol);
-    set_volume_rpc(SND_DEVICE_BT,      SND_METHOD_VOICE, vol);
-    set_volume_rpc(SND_DEVICE_HEADSET, SND_METHOD_VOICE, vol);
-    */
-    // We return an error code here to let the audioflinger do in-software
-    // volume on top of the maximum volume that we set through the SND API.
-    // return error - software mixer will handle it
-    return -1;
+
+    {
+        int fd = open("/dev/audio_ctl", O_RDWR);
+        if (fd < 0) {
+            LOGE("could not open audio_ctl: %s\n", strerror(errno));
+            return NO_ERROR;
+        }
+        if (ioctl(fd, CPCAP_AUDIO_OUT_SET_VOLUME, vol) < 0)
+            LOGE("could not set volume: %s\n", strerror(errno));
+        close(fd);
+    }
+
+    return NO_ERROR;
 }
 
 // always call with mutex held
-status_t AudioHardware::doAudioRouteOrMute(uint32_t device)
+status_t AudioHardware::doAudioRouteOrMute()
 {
     int fd = open("/dev/audio_ctl", O_RDWR);
     if (fd < 0) {
@@ -312,13 +322,15 @@ status_t AudioHardware::doAudioRouteOrMute(uint32_t device)
         return NO_ERROR;
     }
 
-    if (ioctl(fd, CPCAP_AUDIO_IN_SET_INPUT,
-              device == CPCAP_AUDIO_OUT_SPEAKER ? CPCAP_AUDIO_IN_MIC1 :
-                        CPCAP_AUDIO_IN_MIC2) < 0)
+    struct cpcap_audio_stream in;
+    in.id = mCurInDevice;
+    in.on = 1;
+
+    if (ioctl(fd, CPCAP_AUDIO_IN_SET_INPUT, &in) < 0)
         LOGE("could not set input: %s\n", strerror(errno));
 
-    struct cpcap_audio_output out;
-    out.id = device;
+    struct cpcap_audio_stream out;
+    out.id = mCurOutDevice;
     out.on = 1;
 
     if (ioctl(fd, CPCAP_AUDIO_OUT_SET_OUTPUT, &out) < 0)
@@ -332,25 +344,43 @@ status_t AudioHardware::doRouting()
 {
     Mutex::Autolock lock(mLock);
     uint32_t outputDevices = mOutput->devices();
-    status_t ret = NO_ERROR;
     AudioStreamInTegra *input = getActiveInput_l();
     uint32_t inputDevice = (input == NULL) ? 0 : input->devices();
 
-    int sndDevice = -1;
+    int sndOutDevice = -1;
+    int sndInDevice = -1;
+
+    LOGV("inputDevice = 0x%x", inputDevice);
+    LOGV("outputDevices = 0x%x", outputDevices);
+
+    /* We do not support more than one input device simultaneously */
+    if (inputDevice & (inputDevice - 1)) {
+        LOGE("Multiple input devices (0x%x) are not supported", inputDevice);
+        return INVALID_OPERATION;
+    }
 
     if (inputDevice != 0) {
         LOGI("do input routing device %x\n", inputDevice);
         if (inputDevice & AudioSystem::DEVICE_IN_BLUETOOTH_SCO_HEADSET) {
-            LOGI("Routing audio to Bluetooth PCM\n");
-            sndDevice = CPCAP_AUDIO_OUT_SPEAKER;
+            LOGI("Routing audio to Bluetooth PCM: NOT IMPLEMENTED\n");
+            sndOutDevice = CPCAP_AUDIO_OUT_SPEAKER;
+            sndInDevice = CPCAP_AUDIO_IN_MIC1;
         } else if (inputDevice & AudioSystem::DEVICE_IN_WIRED_HEADSET) {
             if ((outputDevices & AudioSystem::DEVICE_OUT_WIRED_HEADSET) &&
                 (outputDevices & AudioSystem::DEVICE_OUT_SPEAKER)) {
-                LOGI("Routing audio to Wired Headset and Speaker\n");
-                sndDevice = CPCAP_AUDIO_OUT_SPEAKER;
+                sndOutDevice = CPCAP_AUDIO_OUT_HEADSET_AND_SPEAKER;
+                if (inputDevice & AudioSystem::DEVICE_IN_WIRED_HEADSET) {
+                    LOGI("Routing audio to Wired Headset and Speaker\n");
+                    sndInDevice = CPCAP_AUDIO_IN_MIC2;
+                }
+                else {
+                    LOGI("Routing audio to Wired Headset and Speaker (input from headset)\n");
+                    sndInDevice = CPCAP_AUDIO_IN_MIC1;
+                }
             } else {
                 LOGI("Routing audio to Wired Headset\n");
-                sndDevice = CPCAP_AUDIO_OUT_HEADSET;
+                sndOutDevice = CPCAP_AUDIO_OUT_HEADSET;
+                sndInDevice = CPCAP_AUDIO_IN_MIC2;
             }
         } else {
             if (outputDevices & AudioSystem::DEVICE_OUT_SPEAKER) {
@@ -364,51 +394,61 @@ status_t AudioHardware::doRouting()
     }
     // if inputDevice == 0, restore output routing
 
-    if (sndDevice == -1) {
+    if (sndOutDevice == -1) {
+        // We do not multiple output devices if one of them is not the speaker
+        // and the other one is not a headset.
         if (outputDevices & (outputDevices - 1)) {
             if ((outputDevices & AudioSystem::DEVICE_OUT_SPEAKER) == 0) {
-                LOGW("Hardware does not support requested route combination (%#X),"
+                LOGE("Hardware does not support requested route combination (%#X),"
                      " picking closest possible route...", outputDevices);
+                return INVALID_OPERATION;
             }
         }
 
         if (outputDevices &
-            (AudioSystem::DEVICE_OUT_BLUETOOTH_SCO | AudioSystem::DEVICE_OUT_BLUETOOTH_SCO_HEADSET)) {
-            LOGI("Routing audio to Bluetooth PCM\n");
-            sndDevice = CPCAP_AUDIO_OUT_SPEAKER;
+                    (AudioSystem::DEVICE_OUT_BLUETOOTH_SCO | AudioSystem::DEVICE_OUT_BLUETOOTH_SCO_HEADSET)) {
+            LOGI("Routing audio to Bluetooth PCM: NOT IMPLEMENTED\n");
+            sndOutDevice = CPCAP_AUDIO_OUT_SPEAKER;
+            sndInDevice = CPCAP_AUDIO_IN_MIC1;
         } else if (outputDevices & AudioSystem::DEVICE_OUT_BLUETOOTH_SCO_CARKIT) {
-            LOGI("Routing audio to Bluetooth PCM\n");
-            sndDevice = CPCAP_AUDIO_OUT_SPEAKER;
+            LOGI("Routing audio to Bluetooth PCM: NOT IMPLEMENTED\n");
+            sndOutDevice = CPCAP_AUDIO_OUT_SPEAKER;
+            sndInDevice = CPCAP_AUDIO_IN_MIC1;
         } else if ((outputDevices & AudioSystem::DEVICE_OUT_WIRED_HEADSET) &&
                    (outputDevices & AudioSystem::DEVICE_OUT_SPEAKER)) {
             LOGI("Routing audio to Wired Headset and Speaker\n");
-            sndDevice = CPCAP_AUDIO_OUT_SPEAKER;
+            sndOutDevice = CPCAP_AUDIO_OUT_HEADSET_AND_SPEAKER;
+            sndInDevice = CPCAP_AUDIO_IN_MIC1;
         } else if (outputDevices & AudioSystem::DEVICE_OUT_WIRED_HEADPHONE) {
             if (outputDevices & AudioSystem::DEVICE_OUT_SPEAKER) {
-                LOGI("Routing audio to No microphone Wired Headset and Speaker (%d,%x)\n", mMode, outputDevices);
+                LOGI("Routing audio to No-microphone Wired Headset and Speaker (%d,%x)\n", mMode, outputDevices);
                 sndDevice = CPCAP_AUDIO_OUT_SPEAKER;
             } else {
-                LOGI("Routing audio to No microphone Wired Headset (%d,%x)\n", mMode, outputDevices);
-                sndDevice = CPCAP_AUDIO_OUT_HEADSET;
+                LOGI("Routing audio to No-microphone Wired Headset (%d,%x)\n", mMode, outputDevices);
+                sndOutDevice = CPCAP_AUDIO_OUT_HEADSET;
+                sndInDevice = CPCAP_AUDIO_IN_MIC1;
             }
         } else if (outputDevices & AudioSystem::DEVICE_OUT_WIRED_HEADSET) {
             LOGI("Routing audio to Wired Headset\n");
-            sndDevice = CPCAP_AUDIO_OUT_HEADSET;
+            sndOutDevice = CPCAP_AUDIO_OUT_HEADSET;
+            sndInDevice = CPCAP_AUDIO_IN_MIC2;
         } else if (outputDevices & AudioSystem::DEVICE_OUT_SPEAKER) {
             LOGI("Routing audio to Speakerphone\n");
-            sndDevice = CPCAP_AUDIO_OUT_SPEAKER;
+            sndOutDevice = CPCAP_AUDIO_OUT_SPEAKER;
+            sndInDevice = CPCAP_AUDIO_IN_MIC1;
         } else {
-            LOGI("Routing audio to Handset\n");
-            sndDevice = CPCAP_AUDIO_OUT_HEADSET;
+            LOGE("Invalid routing combination (in %x, out %x)", inputDevice, outputDevices);
+            return INVALID_OPERATION;
         }
     }
 
-    if (sndDevice != -1 && sndDevice != mCurSndDevice) {
-        ret = doAudioRouteOrMute(sndDevice);
-        mCurSndDevice = sndDevice;
-    }
+    if (sndOutDevice != -1)
+        mCurOutDevice = sndOutDevice;
 
-    return ret;
+    if (sndInDevice != -1)
+        mCurInDevice = sndInDevice;
+
+    return doAudioRouteOrMute();
 }
 
 status_t AudioHardware::checkMicMute()

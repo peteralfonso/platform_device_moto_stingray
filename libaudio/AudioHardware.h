@@ -85,14 +85,14 @@ public:
     virtual    void        closeInputStream(AudioStreamIn* in);
 
     virtual    size_t      getInputBufferSize(uint32_t sampleRate, int format, int channelCount);
-               void        clearCurDevice() { mCurSndDevice = -1; }
+               void        clearCurDevice() { mCurOutDevice = mCurInDevice = -1; }
 
 protected:
     virtual status_t    dump(int fd, const Vector<String16>& args);
 
 private:
 
-    status_t    doAudioRouteOrMute(uint32_t device);
+    status_t    doAudioRouteOrMute();
     status_t    setMicMute_nosync(bool state);
     status_t    checkMicMute();
     status_t    dumpInternals(int fd, const Vector<String16>& args);
@@ -188,7 +188,8 @@ private:
             AudioStreamOutTegra*  mOutput;
             SortedVector <AudioStreamInTegra*>   mInputs;
 
-            int mCurSndDevice;
+            int mCurOutDevice;
+            int mCurInDevice;
 
      friend class AudioStreamInTegra;
             Mutex       mLock;
