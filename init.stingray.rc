@@ -162,3 +162,10 @@ service motolocation /system/bin/sh /system/bin/am startservice -n com.motorola.
 
 on property:gsm.mot.locatonproxy=start
     start motolocation
+
+# Get BP version and save to misc
+service savebpver /system/bin/savebpver
+   oneshot
+
+on property:dev.bootcomplete=1
+   start savebpver
