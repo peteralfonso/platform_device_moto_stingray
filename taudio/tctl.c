@@ -5,6 +5,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <assert.h>
 
 #include <sys/ioctl.h>
 #include <linux/cpcap_audio.h>
@@ -21,8 +22,8 @@ int
 main(int argc, char *argv[])
 {
     int opt, cfd;
-    int output = -1;
-    int input = -2;
+    int output = -3;
+    int input = -3;
     int volume = -1; /* max 15 */
     int in_volume = -1; /* max 31 */
     int record = -1; /* start 1, stop 0 */
@@ -72,15 +73,16 @@ main(int argc, char *argv[])
 
     FAILIF(cfd < 0, "could not open control: %s\n", strerror(errno));
 
-    if (output >= 0) {
-        struct cpcap_audio_output cfg;
+    if (output > -4 && output < 4) {
+        struct cpcap_audio_stream cfg;
+        assert(!output); // 1 or 2 or 3 or -1 or -2 or -3
         if (output < 0) {
-            cfg.id = -output;
+            cfg.id = (-output) - 1;
             cfg.on = 0;
             printf("set output %d to OFF\n", cfg.id);
         }
         else {
-            cfg.id = output;
+            cfg.id = output - 1;
             cfg.on = 1;
             printf("set output %d to ON\n", cfg.id);
         }
@@ -100,10 +102,21 @@ main(int argc, char *argv[])
                "Cannot set input volume to %d: %s\n", output, strerror(errno));
     }
 
-    if (input >= -1) {
-        printf("set input\n");
-        FAILIF(ioctl(cfd, CPCAP_AUDIO_IN_SET_INPUT, input) < 0,
-               "Cannot set input device to %d: %s\n", input, strerror(errno));
+    if (input > -3 && input < 3) {
+        struct cpcap_audio_stream cfg;
+        assert(!input); // 1 or 2 or -1 or -2
+        if (input < 0) {
+            cfg.id = (-input) - 1;
+            cfg.on = 0;
+            printf("set input %d to OFF\n", cfg.id);
+        }
+        else {
+            cfg.id = input - 1;
+            cfg.on = 1;
+            printf("set input %d to ON\n", cfg.id);
+        }
+        FAILIF(ioctl(cfd, CPCAP_AUDIO_IN_SET_INPUT, &cfg) < 0,
+               "Cannot set input device %d: %s\n", cfg.id, strerror(errno));
     }
 
     if (in_channels >= 0 || in_rate >= 0) {
