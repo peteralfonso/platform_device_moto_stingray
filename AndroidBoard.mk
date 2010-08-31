@@ -2,7 +2,8 @@ LOCAL_PATH := $(call my-dir)
 include $(CLEAR_VARS)
 
 PRODUCT_COPY_FILES += \
-	$(LOCAL_PATH)/vold.fstab:system/etc/vold.fstab
+	$(LOCAL_PATH)/vold.fstab:system/etc/vold.fstab \
+	$(LOCAL_PATH)/qtouch-touchscreen.idc:system/usr/idc/qtouch-touchscreen.idc
 
 file := $(TARGET_OUT_KEYLAYOUT)/cpcap-key.kl
 ALL_PREBUILT += $(file)
