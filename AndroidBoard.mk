@@ -11,6 +11,10 @@ $(file) : $(LOCAL_PATH)/cpcap-key.kl | $(ACP)
 	$(transform-prebuilt-to-target)
 
 include $(CLEAR_VARS)
+LOCAL_SRC_FILES := stingray-keypad.kcm
+include $(BUILD_KEY_CHAR_MAP)
+
+include $(CLEAR_VARS)
 
 ifeq ($(TARGET_PREBUILT_KERNEL),)
 TARGET_PREBUILT_KERNEL := $(LOCAL_PATH)/kernel
