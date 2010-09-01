@@ -5,6 +5,7 @@
 /dev/nvmap	0666	system	system
 /dev/nvfw	0660	media	media
 /dev/ov5650	0666	media	camera
+/dev/dw9714l    0666    media   camera
 /dev/soc2030	0666	media	camera
 /dev/audio*	0660	system	audio
 /dev/tegra_camera	0666	media	camera
