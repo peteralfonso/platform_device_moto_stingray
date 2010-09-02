@@ -16,7 +16,8 @@
 
 PRODUCT_PROPERTY_OVERRIDES := \
     wifi.interface=eth0 \
-    wifi.supplicant_scan_interval=15
+    wifi.supplicant_scan_interval=15 \
+    dalvik.vm.heapsize=32m
 
 PRODUCT_COPY_FILES += \
     device/moto/stingray/bcm4329.ko:system/lib/modules/bcm4329.ko \
@@ -30,3 +31,6 @@ PRODUCT_PACKAGES := \
     lights.stingray \
     librs_jni \
     make_ext4fs
+
+# we have enough storage space to hold precise GC data
+PRODUCT_TAGS += dalvik.gc.type-precise
