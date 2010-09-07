@@ -22,7 +22,7 @@ int
 main(int argc, char *argv[])
 {
     int opt, cfd;
-    int output = -3;
+    int output = -4;
     int input = -3;
     int volume = -1; /* max 15 */
     int in_volume = -1; /* max 31 */
@@ -31,16 +31,25 @@ main(int argc, char *argv[])
     int in_rate = -1;
     int in_channels = -1;
 
-    while ((opt = getopt(argc, argv, "o:i:s:c:v:g:d:r:")) != -1) {
+    while ((opt = getopt(argc, argv, "o::i::s:c:v::g::d:r:")) != -1) {
         switch (opt) {
         case 'o':
-            output = atoi(optarg);
+            if (optarg)
+                output = atoi(optarg);
+            else
+                output = -5;
             break;
         case 'i':
-            input = atoi(optarg);
+            if (optarg)
+                input = atoi(optarg);
+            else
+                input = -4;
             break;
         case 'v':
-            volume = atoi(optarg);
+            if (optarg)
+                volume = atoi(optarg);
+            else
+                volume = -2;
             break;
         case 's':
             in_rate = atoi(optarg);
@@ -49,7 +58,10 @@ main(int argc, char *argv[])
             in_channels = atoi(optarg);
             break;
         case 'g':
-            in_volume = atoi(optarg);
+            if (optarg)
+                in_volume = atoi(optarg);
+            else
+                in_volume = -2;
             break;
         case 'd':
             use_dma = atoi(optarg);
@@ -63,9 +75,6 @@ main(int argc, char *argv[])
             exit(EXIT_FAILURE);
         }
     }
-
-    printf("> output %d, input %d, in_rate %d, in_channels %d, volume %d, use_dma = %d, record = %d\n",
-           output, input, in_rate, in_channels, volume, use_dma, record);
 
     cfd = open("/dev/audio_ctl", O_RDWR);
 
@@ -89,17 +98,33 @@ main(int argc, char *argv[])
         FAILIF(ioctl(cfd, CPCAP_AUDIO_OUT_SET_OUTPUT, &cfg) < 0,
                "Cannot set output device %d: %s\n", cfg.id, strerror(errno));
     }
+    else if (output == -5) {
+        struct cpcap_audio_stream cfg;
+        FAILIF(ioctl(cfd, CPCAP_AUDIO_OUT_GET_OUTPUT, &cfg) < 0,
+               "Cannot get output device %d: %s\n", cfg.id, strerror(errno));
+        printf("current output: %d, %s\n", cfg.id, (cfg.on ? "on" : "off"));
+    }
 
     if (volume >= 0) {
         printf("set output volume\n");
         FAILIF(ioctl(cfd, CPCAP_AUDIO_OUT_SET_VOLUME, volume) < 0,
                "Cannot set volume to %d: %s\n", output, strerror(errno));
     }
+    else if (volume == -2) {
+        FAILIF(ioctl(cfd, CPCAP_AUDIO_OUT_GET_VOLUME, &volume) < 0,
+               "Cannot get volume: %s\n", strerror(errno));
+        printf("speaker volume: %d\n", volume);
+    }
 
     if (in_volume >= 0) {
         printf("set input volume\n");
         FAILIF(ioctl(cfd, CPCAP_AUDIO_IN_SET_VOLUME, in_volume) < 0,
                "Cannot set input volume to %d: %s\n", output, strerror(errno));
+    }
+    else if (in_volume == -2) {
+        FAILIF(ioctl(cfd, CPCAP_AUDIO_IN_GET_VOLUME, &in_volume) < 0,
+               "Cannot get input volume: %s\n", strerror(errno));
+        printf("microphone gain: %d\n", in_volume);
     }
 
     if (input > -3 && input < 3) {
@@ -117,6 +142,12 @@ main(int argc, char *argv[])
         }
         FAILIF(ioctl(cfd, CPCAP_AUDIO_IN_SET_INPUT, &cfg) < 0,
                "Cannot set input device %d: %s\n", cfg.id, strerror(errno));
+    }
+    else if (input == -4) {
+        struct cpcap_audio_stream cfg;
+        FAILIF(ioctl(cfd, CPCAP_AUDIO_IN_GET_INPUT, &cfg) < 0,
+               "Cannot get input device %d: %s\n", cfg.id, strerror(errno));
+        printf("current input: %d, %s\n", cfg.id, (cfg.on ? "on" : "off"));
     }
 
     if (in_channels >= 0 || in_rate >= 0) {
