@@ -42,3 +42,7 @@ PRODUCT_PACKAGES := \
 
 # we have enough storage space to hold precise GC data
 PRODUCT_TAGS += dalvik.gc.type-precise
+
+# media config xml file
+PRODUCT_COPY_FILES += \
+    device/moto/stingray/media_profiles.xml:system/etc/media_profiles.xml
