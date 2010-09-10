@@ -38,6 +38,11 @@ AkmSensor::AkmSensor()
 {
     memset(mPendingEvents, 0, sizeof(mPendingEvents));
 
+    mPendingEvents[Accelerometer].version = sizeof(sensors_event_t);
+    mPendingEvents[Accelerometer].sensor = ID_A;
+    mPendingEvents[Accelerometer].type = SENSOR_TYPE_ACCELEROMETER;
+    mPendingEvents[Accelerometer].acceleration.status = SENSOR_STATUS_ACCURACY_HIGH;
+
     mPendingEvents[MagneticField].version = sizeof(sensors_event_t);
     mPendingEvents[MagneticField].sensor = ID_M;
     mPendingEvents[MagneticField].type = SENSOR_TYPE_MAGNETIC_FIELD;
@@ -56,6 +61,21 @@ AkmSensor::AkmSensor()
     short flags = 0;
 
     open_device();
+
+    if (!ioctl(dev_fd, ECS_IOCTL_APP_GET_AFLAG, &flags)) {
+        if (flags)  {
+            mEnabled |= 1<<Accelerometer;
+            if (!ioctl(data_fd, EVIOCGABS(EVENT_TYPE_ACCEL_X), &absinfo)) {
+                mPendingEvents[Accelerometer].acceleration.x = absinfo.value * CONVERT_A_X;
+            }
+            if (!ioctl(data_fd, EVIOCGABS(EVENT_TYPE_ACCEL_Y), &absinfo)) {
+                mPendingEvents[Accelerometer].acceleration.y = absinfo.value * CONVERT_A_Y;
+            }
+            if (!ioctl(data_fd, EVIOCGABS(EVENT_TYPE_ACCEL_Z), &absinfo)) {
+                mPendingEvents[Accelerometer].acceleration.z = absinfo.value * CONVERT_A_Z;
+            }
+        }
+    }
     if (!ioctl(dev_fd, ECS_IOCTL_APP_GET_MVFLAG, &flags)) {
         if (flags)  {
             mEnabled |= 1<<MagneticField;
@@ -99,6 +119,7 @@ int AkmSensor::enable(int32_t handle, int en)
 {
     int what = -1;
     switch (handle) {
+        case ID_A: what = Accelerometer; break;
         case ID_M: what = MagneticField; break;
         case ID_O: what = Orientation;   break;
     }
@@ -115,6 +136,7 @@ int AkmSensor::enable(int32_t handle, int en)
         }
         int cmd;
         switch (what) {
+            case Accelerometer: cmd = ECS_IOCTL_APP_SET_AFLAG;  break;
             case MagneticField: cmd = ECS_IOCTL_APP_SET_MVFLAG; break;
             case Orientation:   cmd = ECS_IOCTL_APP_SET_MFLAG;  break;
         }
@@ -139,6 +161,7 @@ int AkmSensor::setDelay(int32_t handle, int64_t ns)
 #ifdef ECS_IOCTL_APP_SET_DELAY
     int what = -1;
     switch (handle) {
+        case ID_A: what = Accelerometer; break;
         case ID_M: what = MagneticField; break;
         case ID_O: what = Orientation;   break;
     }
@@ -220,6 +243,19 @@ int AkmSensor::readEvents(sensors_event_t* data, int count)
 void AkmSensor::processEvent(int code, int value)
 {
     switch (code) {
+        case EVENT_TYPE_ACCEL_X:
+            mPendingMask |= 1<<Accelerometer;
+            mPendingEvents[Accelerometer].acceleration.x = value * CONVERT_A_X;
+            break;
+        case EVENT_TYPE_ACCEL_Y:
+            mPendingMask |= 1<<Accelerometer;
+            mPendingEvents[Accelerometer].acceleration.y = value * CONVERT_A_Y;
+            break;
+        case EVENT_TYPE_ACCEL_Z:
+            mPendingMask |= 1<<Accelerometer;
+            mPendingEvents[Accelerometer].acceleration.z = value * CONVERT_A_Z;
+            break;
+
         case EVENT_TYPE_MAGV_X:
             mPendingMask |= 1<<MagneticField;
             mPendingEvents[MagneticField].magnetic.x = value * CONVERT_M_X;
