@@ -85,20 +85,19 @@ public:
     virtual    void        closeInputStream(AudioStreamIn* in);
 
     virtual    size_t      getInputBufferSize(uint32_t sampleRate, int format, int channelCount);
-               void        clearCurDevice() { mCurOutDevice = mCurInDevice = -1; }
 
 protected:
     virtual status_t    dump(int fd, const Vector<String16>& args);
 
 private:
 
-    status_t    doAudioRouteOrMute();
     status_t    setMicMute_nosync(bool state);
     status_t    checkMicMute();
     status_t    dumpInternals(int fd, const Vector<String16>& args);
     uint32_t    getInputSampleRate(uint32_t sampleRate);
-    bool        checkOutputStandby();
+    status_t    doStandby(bool output, bool enable);
     status_t    doRouting();
+
     AudioStreamInTegra*   getActiveInput_l();
 
     class AudioStreamOutTegra : public AudioStreamOut {
@@ -119,8 +118,9 @@ private:
         virtual status_t    setVolume(float left, float right) { return INVALID_OPERATION; }
         virtual ssize_t     write(const void* buffer, size_t bytes);
         virtual status_t    standby();
+        virtual status_t    online();
         virtual status_t    dump(int fd, const Vector<String16>& args);
-                bool        checkStandby();
+                bool        getStandby();
         virtual status_t    setParameters(const String8& keyValuePairs);
         virtual String8     getParameters(const String8& keys);
                 uint32_t    devices() { return mDevices; }
@@ -132,7 +132,6 @@ private:
                 int         mFdCtl;
                 int         mStartCount;
                 int         mRetryCount;
-                bool        mStandby;
                 uint32_t    mDevices;
     };
 
@@ -160,6 +159,8 @@ private:
         virtual ssize_t     read(void* buffer, ssize_t bytes);
         virtual status_t    dump(int fd, const Vector<String16>& args);
         virtual status_t    standby();
+        virtual status_t    online();
+                bool        getStandby();
         virtual status_t    setParameters(const String8& keyValuePairs);
         virtual String8     getParameters(const String8& keys);
         virtual unsigned int  getInputFramesLost() const { return 0; }
@@ -188,13 +189,13 @@ private:
             AudioStreamOutTegra*  mOutput;
             SortedVector <AudioStreamInTegra*>   mInputs;
 
-            int mCurOutDevice;
-            int mCurInDevice;
+            struct cpcap_audio_stream mCurOutDevice;
+            struct cpcap_audio_stream mCurInDevice;
 
      friend class AudioStreamInTegra;
             Mutex       mLock;
 
-            int sndDevice;
+            int mCpcapCtlFd;
 };
 
 // ----------------------------------------------------------------------------

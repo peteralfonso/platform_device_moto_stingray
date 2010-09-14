@@ -42,31 +42,31 @@ const uint32_t AudioHardware::inputSamplingRates[] = {
 
 AudioHardware::AudioHardware() :
     mInit(false), mMicMute(true), mBluetoothNrec(true), mBluetoothId(0),
-    mOutput(0), mCurOutDevice(-1), mCurInDevice(-1)
+    mOutput(0), mCpcapCtlFd(-1)
 {
-    int fd = ::open("/dev/audio_ctl", O_RDWR);
-    if (fd >= 0) {
-        if (::ioctl(fd, CPCAP_AUDIO_OUT_GET_OUTPUT, &mCurOutDevice))
-            LOGE("Could not retrieve output device: %s", strerror(errno));
-        else
-            LOGI("current output device: %d", mCurOutDevice);
+    LOGV("AudioHardware constructor");
 
-        if (::ioctl(fd, CPCAP_AUDIO_IN_GET_INPUT, &mCurInDevice))
-            LOGE("Could not retrieve input device: %s", strerror(errno));
-        else
-            LOGI("current input device: %d", mCurInDevice);
+    mCpcapCtlFd = ::open("/dev/audio_ctl", O_RDWR);
+    if (mCpcapCtlFd < 0) {
+        LOGE("Failed to initialized: %s\n", strerror(errno));
+        return;
     }
+
+    ::ioctl(mCpcapCtlFd, CPCAP_AUDIO_OUT_GET_OUTPUT, &mCurOutDevice);
+    ::ioctl(mCpcapCtlFd, CPCAP_AUDIO_IN_GET_INPUT, &mCurInDevice);
+
     mInit = true;
 }
 
 AudioHardware::~AudioHardware()
 {
+    LOGV("AudioHardware destructor");
     for (size_t index = 0; index < mInputs.size(); index++) {
         closeInputStream((AudioStreamIn*)mInputs[index]);
     }
     mInputs.clear();
     closeOutputStream((AudioStreamOut*)mOutput);
-    mInit = false;
+    ::close(mCpcapCtlFd);
 }
 
 status_t AudioHardware::initCheck()
@@ -123,7 +123,7 @@ AudioStreamIn* AudioHardware::openInputStream(
         return 0;
     }
 
-    mLock.lock();
+    Mutex::Autolock lock(mLock);
 
     AudioStreamInTegra* in = new AudioStreamInTegra();
     status_t lStatus = in->set(this, devices, format, channels, sampleRate, acoustic_flags);
@@ -131,18 +131,17 @@ AudioStreamIn* AudioHardware::openInputStream(
         *status = lStatus;
     }
     if (lStatus != NO_ERROR) {
-        mLock.unlock();
         delete in;
         return 0;
     }
 
     mInputs.add(in);
-    mLock.unlock();
 
     return in;
 }
 
-void AudioHardware::closeInputStream(AudioStreamIn* in) {
+void AudioHardware::closeInputStream(AudioStreamIn* in)
+{
     Mutex::Autolock lock(mLock);
 
     ssize_t index = mInputs.indexOf((AudioStreamInTegra *)in);
@@ -158,22 +157,49 @@ void AudioHardware::closeInputStream(AudioStreamIn* in) {
 
 status_t AudioHardware::setMode(int mode)
 {
-    status_t status = AudioHardwareBase::setMode(mode);
-    if (status == NO_ERROR) {
-        // make sure that doAudioRouteOrMute() is called by doRouting()
-        // even if the new device selected is the same as current one.
-        clearCurDevice();
-    }
-    return status;
+    return AudioHardwareBase::setMode(mode);
 }
 
-bool AudioHardware::checkOutputStandby()
+status_t AudioHardware::doStandby(bool output, bool enable)
 {
-    if (mOutput)
-        if (!mOutput->checkStandby())
-            return false;
+    status_t status = NO_ERROR;
+    struct cpcap_audio_stream standby;
 
-    return true;
+    LOGV("AudioHardware::doStandby() putting %s in %s mode",
+            output ? "output" : "input",
+            enable ? "standby" : "online" );
+
+//  Mutex::Autolock lock(mLock);
+
+    if (output) {
+        standby.id = CPCAP_AUDIO_OUT_STANDBY;
+        standby.on = enable;
+
+        if (::ioctl(mCpcapCtlFd, CPCAP_AUDIO_OUT_SET_OUTPUT, &standby) < 0) {
+            LOGE("could not turn off current output device: %s\n",
+                 strerror(errno));
+            status = errno;
+        }
+        ::ioctl(mCpcapCtlFd, CPCAP_AUDIO_OUT_GET_OUTPUT, &mCurOutDevice);
+        LOGV("%s: after standby %s, output is %s", __FUNCTION__,
+             enable ? "enable" : "disable",
+             mCurOutDevice.on ? "on" : "off");
+    } else {
+        standby.id = CPCAP_AUDIO_IN_STANDBY;
+        standby.on = enable;
+
+        if (::ioctl(mCpcapCtlFd, CPCAP_AUDIO_IN_SET_INPUT, &standby) < 0) {
+            LOGE("could not turn off current input device: %s\n",
+                 strerror(errno));
+            status = errno;
+        }
+        ::ioctl(mCpcapCtlFd, CPCAP_AUDIO_IN_GET_INPUT, &mCurInDevice);
+        LOGV("%s: after standby %s, input is %s", __FUNCTION__,
+             enable ? "enable" : "disable",
+             mCurInDevice.on ? "on" : "off");
+    }
+
+    return status;
 }
 
 status_t AudioHardware::setMicMute(bool state)
@@ -279,16 +305,8 @@ status_t AudioHardware::setVoiceVolume(float v)
     LOGI("Setting in-call volume to %d (available range is 0 to 15)\n", vol);
 
     Mutex::Autolock lock(mLock);
-    {
-        int fd = open("/dev/audio_ctl", O_RDWR);
-        if (fd < 0) {
-            LOGE("could not open audio_ctl: %s\n", strerror(errno));
-            return NO_ERROR;
-        }
-        if (ioctl(fd, CPCAP_AUDIO_OUT_SET_VOLUME, vol) < 0)
-            LOGE("could not set volume: %s\n", strerror(errno));
-        close(fd);
-    }
+    if (::ioctl(mCpcapCtlFd, CPCAP_AUDIO_OUT_SET_VOLUME, vol) < 0)
+        LOGE("could not set volume: %s\n", strerror(errno));
 #endif
     return NO_ERROR;
 }
@@ -299,43 +317,8 @@ status_t AudioHardware::setMasterVolume(float v)
     int vol = ceil(v * 15.0);
     LOGI("Set master volume to %d.\n", vol);
 
-    {
-        int fd = open("/dev/audio_ctl", O_RDWR);
-        if (fd < 0) {
-            LOGE("could not open audio_ctl: %s\n", strerror(errno));
-            return NO_ERROR;
-        }
-        if (ioctl(fd, CPCAP_AUDIO_OUT_SET_VOLUME, vol) < 0)
-            LOGE("could not set volume: %s\n", strerror(errno));
-        close(fd);
-    }
-
-    return NO_ERROR;
-}
-
-// always call with mutex held
-status_t AudioHardware::doAudioRouteOrMute()
-{
-    int fd = open("/dev/audio_ctl", O_RDWR);
-    if (fd < 0) {
-        LOGE("could not open audio_ctl: %s\n", strerror(errno));
-        return NO_ERROR;
-    }
-
-    struct cpcap_audio_stream in;
-    in.id = mCurInDevice;
-    in.on = 1;
-
-    if (ioctl(fd, CPCAP_AUDIO_IN_SET_INPUT, &in) < 0)
-        LOGE("could not set input: %s\n", strerror(errno));
-
-    struct cpcap_audio_stream out;
-    out.id = mCurOutDevice;
-    out.on = 1;
-
-    if (ioctl(fd, CPCAP_AUDIO_OUT_SET_OUTPUT, &out) < 0)
-        LOGE("could not set output: %s\n", strerror(errno));
-    close(fd);
+    if (::ioctl(mCpcapCtlFd, CPCAP_AUDIO_OUT_SET_VOLUME, vol) < 0)
+        LOGE("could not set volume: %s\n", strerror(errno));
 
     return NO_ERROR;
 }
@@ -350,105 +333,74 @@ status_t AudioHardware::doRouting()
     int sndOutDevice = -1;
     int sndInDevice = -1;
 
-    LOGV("inputDevice = 0x%x", inputDevice);
-    LOGV("outputDevices = 0x%x", outputDevices);
+    LOGV("%s: inputDevice %x, outputDevices %x", __FUNCTION__,
+         inputDevice, outputDevices);
 
-    /* We do not support more than one input device simultaneously */
-    if (inputDevice & (inputDevice - 1)) {
-        LOGE("Multiple input devices (0x%x) are not supported", inputDevice);
-        return INVALID_OPERATION;
+    switch (inputDevice) {
+    case AudioSystem::DEVICE_IN_DEFAULT:
+    case AudioSystem::DEVICE_IN_BUILTIN_MIC:
+        sndInDevice = CPCAP_AUDIO_IN_MIC1;
+        break;
+    case AudioSystem::DEVICE_IN_WIRED_HEADSET:
+        sndInDevice = CPCAP_AUDIO_IN_MIC2;
+        break;
+    default:
+        break;
     }
 
-    if (inputDevice != 0) {
-        LOGI("do input routing device %x\n", inputDevice);
-        if (inputDevice & AudioSystem::DEVICE_IN_BLUETOOTH_SCO_HEADSET) {
-            LOGI("Routing audio to Bluetooth PCM: NOT IMPLEMENTED\n");
-            sndOutDevice = CPCAP_AUDIO_OUT_SPEAKER;
-            sndInDevice = CPCAP_AUDIO_IN_MIC1;
-        } else if (inputDevice & AudioSystem::DEVICE_IN_WIRED_HEADSET) {
-            if ((outputDevices & AudioSystem::DEVICE_OUT_WIRED_HEADSET) &&
-                (outputDevices & AudioSystem::DEVICE_OUT_SPEAKER)) {
-                sndOutDevice = CPCAP_AUDIO_OUT_HEADSET_AND_SPEAKER;
-                if (inputDevice & AudioSystem::DEVICE_IN_WIRED_HEADSET) {
-                    LOGI("Routing audio to Wired Headset and Speaker\n");
-                    sndInDevice = CPCAP_AUDIO_IN_MIC2;
-                }
-                else {
-                    LOGI("Routing audio to Wired Headset and Speaker (input from headset)\n");
-                    sndInDevice = CPCAP_AUDIO_IN_MIC1;
-                }
-            } else {
-                LOGI("Routing audio to Wired Headset\n");
-                sndOutDevice = CPCAP_AUDIO_OUT_HEADSET;
-                sndInDevice = CPCAP_AUDIO_IN_MIC2;
-            }
-        } else {
-            if (outputDevices & AudioSystem::DEVICE_OUT_SPEAKER) {
-                LOGI("Routing audio to Speakerphone\n");
-                sndDevice = CPCAP_AUDIO_OUT_SPEAKER;
-            } else {
-                LOGI("Routing audio to Handset\n");
-                sndDevice = CPCAP_AUDIO_OUT_HEADSET;
-            }
-        }
+    switch (outputDevices) {   
+    case AudioSystem::DEVICE_OUT_EARPIECE:
+    case AudioSystem::DEVICE_OUT_DEFAULT:
+    case AudioSystem::DEVICE_OUT_SPEAKER:
+        sndOutDevice = CPCAP_AUDIO_OUT_SPEAKER;
+        break;
+    case AudioSystem::DEVICE_OUT_WIRED_HEADSET:
+    case AudioSystem::DEVICE_OUT_WIRED_HEADPHONE:
+        sndOutDevice = CPCAP_AUDIO_OUT_HEADSET;
+        break;
+    case AudioSystem::DEVICE_OUT_SPEAKER | AudioSystem::DEVICE_OUT_WIRED_HEADSET:
+    case AudioSystem::DEVICE_OUT_SPEAKER | AudioSystem::DEVICE_OUT_WIRED_HEADPHONE:
+        sndOutDevice = CPCAP_AUDIO_OUT_HEADSET_AND_SPEAKER;
+        break;
+    default:
+        break;
     }
-    // if inputDevice == 0, restore output routing
+
+    if (sndInDevice == -1) {
+        LOGV("input device set %x not supported, defaulting to on-board mic",
+             inputDevice);
+        mCurInDevice.id = CPCAP_AUDIO_IN_MIC1;
+    }
+    else
+        mCurInDevice.id = sndInDevice;
 
     if (sndOutDevice == -1) {
-        // We do not multiple output devices if one of them is not the speaker
-        // and the other one is not a headset.
-        if (outputDevices & (outputDevices - 1)) {
-            if ((outputDevices & AudioSystem::DEVICE_OUT_SPEAKER) == 0) {
-                LOGE("Hardware does not support requested route combination (%#X),"
-                     " picking closest possible route...", outputDevices);
-                return INVALID_OPERATION;
-            }
-        }
-
-        if (outputDevices &
-                    (AudioSystem::DEVICE_OUT_BLUETOOTH_SCO | AudioSystem::DEVICE_OUT_BLUETOOTH_SCO_HEADSET)) {
-            LOGI("Routing audio to Bluetooth PCM: NOT IMPLEMENTED\n");
-            sndOutDevice = CPCAP_AUDIO_OUT_SPEAKER;
-            sndInDevice = CPCAP_AUDIO_IN_MIC1;
-        } else if (outputDevices & AudioSystem::DEVICE_OUT_BLUETOOTH_SCO_CARKIT) {
-            LOGI("Routing audio to Bluetooth PCM: NOT IMPLEMENTED\n");
-            sndOutDevice = CPCAP_AUDIO_OUT_SPEAKER;
-            sndInDevice = CPCAP_AUDIO_IN_MIC1;
-        } else if ((outputDevices & AudioSystem::DEVICE_OUT_WIRED_HEADSET) &&
-                   (outputDevices & AudioSystem::DEVICE_OUT_SPEAKER)) {
-            LOGI("Routing audio to Wired Headset and Speaker\n");
-            sndOutDevice = CPCAP_AUDIO_OUT_HEADSET_AND_SPEAKER;
-            sndInDevice = CPCAP_AUDIO_IN_MIC1;
-        } else if (outputDevices & AudioSystem::DEVICE_OUT_WIRED_HEADPHONE) {
-            if (outputDevices & AudioSystem::DEVICE_OUT_SPEAKER) {
-                LOGI("Routing audio to No-microphone Wired Headset and Speaker (%d,%x)\n", mMode, outputDevices);
-                sndDevice = CPCAP_AUDIO_OUT_SPEAKER;
-            } else {
-                LOGI("Routing audio to No-microphone Wired Headset (%d,%x)\n", mMode, outputDevices);
-                sndOutDevice = CPCAP_AUDIO_OUT_HEADSET;
-                sndInDevice = CPCAP_AUDIO_IN_MIC1;
-            }
-        } else if (outputDevices & AudioSystem::DEVICE_OUT_WIRED_HEADSET) {
-            LOGI("Routing audio to Wired Headset\n");
-            sndOutDevice = CPCAP_AUDIO_OUT_HEADSET;
-            sndInDevice = CPCAP_AUDIO_IN_MIC2;
-        } else if (outputDevices & AudioSystem::DEVICE_OUT_SPEAKER) {
-            LOGI("Routing audio to Speakerphone\n");
-            sndOutDevice = CPCAP_AUDIO_OUT_SPEAKER;
-            sndInDevice = CPCAP_AUDIO_IN_MIC1;
-        } else {
-            LOGE("Invalid routing combination (in %x, out %x)", inputDevice, outputDevices);
-            return INVALID_OPERATION;
-        }
+        LOGW("output device set %x not supported, defaulting to speaker",
+             outputDevices);
+        mCurOutDevice.id = CPCAP_AUDIO_OUT_SPEAKER;
     }
+    else
+        mCurOutDevice.id = sndOutDevice;
 
-    if (sndOutDevice != -1)
-        mCurOutDevice = sndOutDevice;
+    LOGV("current input %d, %s",
+         mCurInDevice.id,
+         mCurInDevice.on ? "on" : "off");
 
-    if (sndInDevice != -1)
-        mCurInDevice = sndInDevice;
+    if (::ioctl(mCpcapCtlFd, CPCAP_AUDIO_IN_SET_INPUT,
+              &mCurInDevice) < 0)
+        LOGE("could not set input (%d, on %d): %s\n",
+             mCurInDevice.id, mCurInDevice.on, strerror(errno));
 
-    return doAudioRouteOrMute();
+    LOGV("current output %d, %s", mCurOutDevice.id,
+         mCurOutDevice.on ? "on" : "off");
+
+    if (::ioctl(mCpcapCtlFd, CPCAP_AUDIO_OUT_SET_OUTPUT,
+              &mCurOutDevice) < 0)
+        LOGE("could not set output (%d, on %d): %s\n",
+             mCurOutDevice.id, mCurOutDevice.on,
+             strerror(errno));
+
+    return NO_ERROR;
 }
 
 status_t AudioHardware::checkMicMute()
@@ -522,8 +474,10 @@ AudioHardware::AudioStreamInTegra *AudioHardware::getActiveInput_l()
 // ----------------------------------------------------------------------------
 
 AudioHardware::AudioStreamOutTegra::AudioStreamOutTegra() :
-    mHardware(0), mFd(-1), mFdCtl(-1), mStartCount(0), mRetryCount(0), mStandby(true), mDevices(0)
+    mHardware(0), mFd(-1), mFdCtl(-1), mStartCount(0), mRetryCount(0), mDevices(0)
 {
+    mFd = ::open("/dev/audio0_out", O_RDWR);
+    mFdCtl = ::open("/dev/audio0_out_ctl", O_RDWR);
 }
 
 status_t AudioHardware::AudioStreamOutTegra::set(
@@ -561,8 +515,8 @@ status_t AudioHardware::AudioStreamOutTegra::set(
 
 AudioHardware::AudioStreamOutTegra::~AudioStreamOutTegra()
 {
-    if (mFd >= 0) close(mFd);
-    if (mFdCtl >= 0) close(mFdCtl);
+    if (mFd >= 0) ::close(mFd);
+    if (mFdCtl >= 0) ::close(mFdCtl);
 }
 
 ssize_t AudioHardware::AudioStreamOutTegra::write(const void* buffer, size_t bytes)
@@ -572,30 +526,18 @@ ssize_t AudioHardware::AudioStreamOutTegra::write(const void* buffer, size_t byt
     unsigned errors;
     ssize_t written;
 
-    if (mStandby) {
-        // open driver
-        LOGV("open driver");
-        status = ::open("/dev/audio0_out", O_RDWR);
-        if (status < 0) {
-            LOGE("Cannot open /dev/audio0_out errno: %d", errno);
-            // Simulate audio output timing in case of error
-            usleep(bytes * 1000000 / frameSize() / sampleRate());
-            return status;
-        }
-
-        mFdCtl = ::open("/dev/audio0_out_ctl", O_RDWR);
-        if (mFdCtl < 0)
-            LOGE("Could not open audio-output-control: %s\n", strerror(errno));
-
-        mFd = status;
-        mStandby = false;
+    status = online(); // if already online, a no-op
+    if (status < 0) {
+        // Simulate audio output timing in case of error
+        usleep(bytes * 1000000 / frameSize() / sampleRate());
+        return status;
     }
 
     written = ::write(mFd, buffer, bytes);
     if (written < 0)
         LOGE("Error writing %d bytes to output: %s", bytes, strerror(errno));
     else {
-        if (ioctl(mFdCtl, TEGRA_AUDIO_OUT_GET_ERROR_COUNT, &errors) < 0)
+        if (::ioctl(mFdCtl, TEGRA_AUDIO_OUT_GET_ERROR_COUNT, &errors) < 0)
             LOGE("Could not retrieve playback error count: %s\n", strerror(errno));
         else if (errors)
             LOGW("Played %d bytes with %d errors\n", (int)written, errors);
@@ -604,14 +546,25 @@ ssize_t AudioHardware::AudioStreamOutTegra::write(const void* buffer, size_t byt
     return written;
 }
 
+status_t AudioHardware::AudioStreamOutTegra::online()
+{
+    if (mHardware->mCurOutDevice.on) {
+        LOGV("%s: output already online", __FUNCTION__);
+        return NO_ERROR;
+    }
+
+    return mHardware->doStandby(true, false); // output, online
+}
+
 status_t AudioHardware::AudioStreamOutTegra::standby()
 {
     status_t status = NO_ERROR;
-    if (!mStandby && mFd >= 0) {
-        ::close(mFd);
-        mFd = -1;
+    if (!mHardware->mCurOutDevice.on) {
+        LOGV("%s: output already in standby", __FUNCTION__);
+        return NO_ERROR;
     }
-    mStandby = true;
+
+    status = mHardware->doStandby(true, true); // output, standby
     return status;
 }
 
@@ -637,15 +590,20 @@ status_t AudioHardware::AudioStreamOutTegra::dump(int fd, const Vector<String16>
     result.append(buffer);
     snprintf(buffer, SIZE, "\tmRetryCount: %d\n", mRetryCount);
     result.append(buffer);
-    snprintf(buffer, SIZE, "\tmStandby: %s\n", mStandby? "true": "false");
+    if (mHardware)
+        snprintf(buffer, SIZE, "\tmStandby: %s\n",
+                 mHardware->mCurOutDevice.on ? "false": "true");
+    else
+        snprintf(buffer, SIZE, "\tmStandby: unknown\n");
+
     result.append(buffer);
     ::write(fd, result.string(), result.size());
     return NO_ERROR;
 }
 
-bool AudioHardware::AudioStreamOutTegra::checkStandby()
+bool AudioHardware::AudioStreamOutTegra::getStandby()
 {
-    return mStandby;
+    return mHardware ? !mHardware->mCurOutDevice.on : true;
 }
 
 status_t AudioHardware::AudioStreamOutTegra::setParameters(const String8& keyValuePairs)
@@ -693,89 +651,70 @@ status_t AudioHardware::AudioStreamOutTegra::getRenderPosition(uint32_t *dspFram
 // ----------------------------------------------------------------------------
 
 AudioHardware::AudioStreamInTegra::AudioStreamInTegra() :
-    mHardware(0), mFd(-1), mFdCtl(-1), mState(AUDIO_INPUT_CLOSED), mRetryCount(0),
+    mHardware(0), mState(AUDIO_INPUT_CLOSED), mRetryCount(0),
     mFormat(AUDIO_HW_IN_FORMAT), mChannels(AUDIO_HW_IN_CHANNELS),
     mSampleRate(AUDIO_HW_IN_SAMPLERATE), mBufferSize(AUDIO_HW_IN_BUFFERSIZE),
     mAcoustics((AudioSystem::audio_in_acoustics)0), mDevices(0)
 {
+    // open audio input device
+    mFd = ::open("/dev/audio0_in", O_RDWR);
+    mFdCtl = ::open("/dev/audio0_in_ctl", O_RDWR);
 }
 
 status_t AudioHardware::AudioStreamInTegra::set(
         AudioHardware* hw, uint32_t devices, int *pFormat, uint32_t *pChannels, uint32_t *pRate,
         AudioSystem::audio_in_acoustics acoustic_flags)
 {
+    status_t status = BAD_VALUE;
     if (pFormat == 0)
-        return BAD_VALUE;
+        return status;
     if (*pFormat != AUDIO_HW_IN_FORMAT) {
         LOGE("wrong in format %d, expecting %lld", *pFormat, AUDIO_HW_IN_FORMAT);
         *pFormat = AUDIO_HW_IN_FORMAT;
-        return BAD_VALUE;
+        return status;
     }
 
     if (pRate == 0)
-        return BAD_VALUE;
+        return status;
 
     uint32_t rate = hw->getInputSampleRate(*pRate);
     if (rate != *pRate) {
         LOGE("wrong sample rate %d, expecting %d", *pRate, rate);
         *pRate = rate;
-        return BAD_VALUE;
+        return status;
     }
 
     if (pChannels == 0)
-        return BAD_VALUE;
+        return status;
 
     if (*pChannels != AudioSystem::CHANNEL_IN_MONO &&
         *pChannels != AudioSystem::CHANNEL_IN_STEREO) {
         LOGE("wrong number of channels %d", *pChannels);
         *pChannels = AUDIO_HW_IN_CHANNELS;
-        return BAD_VALUE;
+        return status;
     }
-
-    mHardware = hw;
 
     LOGV("AudioStreamInTegra::set(%d, %d, %u)", *pFormat, *pChannels, *pRate);
-    if (mFd >= 0) {
-        LOGE("Audio record already open");
-        return -EPERM;
-    }
-
-    // open audio input device
-    status_t status = ::open("/dev/audio0_in", O_RDWR);
-    if (status < 0) {
-        LOGE("Cannot open /dev/audio0_in: %s", strerror(errno));
-        goto Error;
-    }
-    mFd = status;
-
-    // open audio input-control device
-    status = ::open("/dev/audio0_in_ctl", O_RDWR);
-    if (status < 0) {
-        LOGE("Cannot open /dev/audio0_in_ctl: %s", strerror(errno));
-        goto Error;
-    }
-    mFdCtl = status;
+    mHardware = hw;
 
     // configuration
-    LOGV("get config");
     struct tegra_audio_in_config config;
-    status = ioctl(mFdCtl, TEGRA_AUDIO_IN_GET_CONFIG, &config);
+    status = ::ioctl(mFdCtl, TEGRA_AUDIO_IN_GET_CONFIG, &config);
     if (status < 0) {
         LOGE("cannot read input config: %s", strerror(errno));
-        goto Error;
+        return status;
     }
 
-    LOGV("set config");
     config.stereo = AudioSystem::popCount(*pChannels) == 2;
     config.rate = *pRate;
 #if 0
     config.buffer_size = bufferSize();
     config.buffer_count = 2;
 #endif
-    status = ioctl(mFdCtl, TEGRA_AUDIO_IN_SET_CONFIG, &config);
+    status = ::ioctl(mFdCtl, TEGRA_AUDIO_IN_SET_CONFIG, &config);
     if (status < 0) {
         LOGE("cannot set input config: %s", strerror(errno));
-        if (ioctl(mFdCtl, TEGRA_AUDIO_IN_GET_CONFIG, &config) == 0) {
+        if (::ioctl(mFdCtl, TEGRA_AUDIO_IN_GET_CONFIG, &config) == 0) {
             if (config.stereo) {
                 *pChannels = AudioSystem::CHANNEL_IN_STEREO;
             } else {
@@ -783,11 +722,8 @@ status_t AudioHardware::AudioStreamInTegra::set(
             }
             *pRate = config.rate;
         }
-        goto Error;
+        return status;
     }
-
-    LOGV("stereo: %d", config.stereo);
-    LOGV("sample rate: %d", config.rate);
 
     mDevices = devices;
     mFormat = AUDIO_HW_IN_FORMAT;
@@ -798,24 +734,20 @@ status_t AudioHardware::AudioStreamInTegra::set(
     //mHardware->setMicMute_nosync(false);
     mState = AUDIO_INPUT_OPENED;
 
-    return NO_ERROR;
-
-Error:
-    if (mFd >= 0) {
-        ::close(mFd);
-        mFd = -1;
-    }
-    if (mFdCtl >= 0) {
-        ::close(mFdCtl);
-        mFdCtl = -1;
-    }
-    return status;
+    return mHardware->doStandby(false, false); // input, online
 }
 
 AudioHardware::AudioStreamInTegra::~AudioStreamInTegra()
 {
     LOGV("AudioStreamInTegra destructor");
+
     standby();
+
+    if (mFd >= 0)
+        ::close(mFd);
+
+    if (mFdCtl >= 0)
+        ::close(mFdCtl);
 }
 
 ssize_t AudioHardware::AudioStreamInTegra::read(void* buffer, ssize_t bytes)
@@ -823,20 +755,24 @@ ssize_t AudioHardware::AudioStreamInTegra::read(void* buffer, ssize_t bytes)
     ssize_t ret;
     unsigned errors;
 
-//  LOGV("AudioStreamInTegra::read(%p, %ld)", buffer, bytes);
-    if (!mHardware) return -1;
+    LOGV("AudioStreamInTegra::read(%p, %ld)", buffer, bytes);
+    if (!mHardware) {
+        LOGE("%s: mHardware is null", __FUNCTION__);
+        return -1;
+    }
+
+    online();
 
     if (mState < AUDIO_INPUT_OPENED) {
         Mutex::Autolock lock(mHardware->mLock);
         if (set(mHardware, mDevices, &mFormat, &mChannels, &mSampleRate, mAcoustics) != NO_ERROR) {
+            LOGE("%s: set() failed", __FUNCTION__);
             return -1;
         }
     }
 
     if (mState < AUDIO_INPUT_STARTED) {
         mState = AUDIO_INPUT_STARTED;
-        // force routing to input device
-        mHardware->clearCurDevice();
         mHardware->doRouting();
     }
 
@@ -844,7 +780,7 @@ ssize_t AudioHardware::AudioStreamInTegra::read(void* buffer, ssize_t bytes)
     if (ret < 0)
         LOGE("Error reading from audio in: %s", strerror(errno));
 
-    if (ioctl(mFdCtl, TEGRA_AUDIO_IN_GET_ERROR_COUNT, &errors) < 0)
+    if (::ioctl(mFdCtl, TEGRA_AUDIO_IN_GET_ERROR_COUNT, &errors) < 0)
         LOGE("Could not retrieve recording error count: %s\n", strerror(errno));
     else if (errors)
         LOGW("Recorded %d bytes with %d errors\n", (int)ret, errors);
@@ -852,24 +788,52 @@ ssize_t AudioHardware::AudioStreamInTegra::read(void* buffer, ssize_t bytes)
     return ret;
 }
 
+bool AudioHardware::AudioStreamInTegra::getStandby()
+{
+    return mState == AUDIO_INPUT_CLOSED;
+}
+
 status_t AudioHardware::AudioStreamInTegra::standby()
 {
-    if (mState > AUDIO_INPUT_CLOSED) {
-        if (mFd >= 0) {
-            ::close(mFd);
-            mFd = -1;
-        }
-        if (mFdCtl >= 0) {
-            ::close(mFdCtl);
-            mFdCtl = -1;
-        }
-        mState = AUDIO_INPUT_CLOSED;
-    }
-    if (!mHardware) return -1;
-    // restore output routing if necessary
-    mHardware->clearCurDevice();
+    mState = AUDIO_INPUT_CLOSED;
+
+    if (!mHardware)
+        return -1;
+
     mHardware->doRouting();
-    return NO_ERROR;
+
+    status_t rc = mHardware->doStandby(false, true); // input, standby
+    if (!rc) {
+        /* Stop recording, if ongoing.  Muting the microphone will cause CPCAP
+         * to not send data through the i2s interface, and read() will block
+         * until recording is resumed.
+         */
+        LOGV("%s: stop recording", __FUNCTION__);
+        ::ioctl(mFd, TEGRA_AUDIO_IN_STOP);
+    }
+    return rc;
+}
+
+status_t AudioHardware::AudioStreamInTegra::online()
+{
+    if (mHardware->mCurInDevice.on) {
+        LOGV("%s: input already online", __FUNCTION__); //@@@@@@
+        return NO_ERROR;
+    }
+
+    LOGV("%s", __FUNCTION__);
+    status_t rc = mHardware->doStandby(false, false); // input, online
+#if 0
+    if (!rc) {
+        /* Start recording, if ongoing and previously paused.  Muting the
+         * microphone will cause CPCAP to not send data through the i2s
+         * interface, and read() will block until recording is resumed.
+         */
+        LOGV("%s: start/resume recording", __FUNCTION__);
+        ::ioctl(mFd, TEGRA_AUDIO_IN_START);
+    }
+#endif
+    return rc;
 }
 
 status_t AudioHardware::AudioStreamInTegra::dump(int fd, const Vector<String16>& args)
