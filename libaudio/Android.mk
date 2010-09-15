@@ -45,7 +45,14 @@ LOCAL_SRC_FILES += AudioHardware.cpp
 
 LOCAL_CFLAGS += -fno-short-enums
 
-LOCAL_STATIC_LIBRARIES += libaudiointerface
+LOCAL_STATIC_LIBRARIES += libaudiointerface \
+    libEverest_motomm-r \
+    libCortexA9_aie-r \
+    libCortexA9_sas-r \
+    libse-r
+
+LOCAL_C_INCLUDES += vendor/moto/stingray/motomm
+
 ifeq ($(BOARD_HAVE_BLUETOOTH),true)
   LOCAL_SHARED_LIBRARIES += liba2dp
 endif
