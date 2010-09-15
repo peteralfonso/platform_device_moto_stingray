@@ -34,6 +34,10 @@ PRODUCT_COPY_FILES += \
     frameworks/base/data/etc/android.hardware.camera.flash-autofocus.xml:system/etc/permissions/android.hardware.camera.flash-autofocus.xml \
     packages/wallpapers/LivePicker/android.software.live_wallpaper.xml:system/etc/permissions/android.software.live_wallpaper.xml
 
+PRODUCT_COPY_FILES += \
+        device/moto/stingray/vold.fstab:system/etc/vold.fstab \
+        device/moto/stingray/qtouch-touchscreen.idc:system/usr/idc/qtouch-touchscreen.idc
+
 PRODUCT_PACKAGES := \
     sensors.stingray \
     lights.stingray \
