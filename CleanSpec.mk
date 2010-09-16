@@ -47,6 +47,8 @@
 
 $(call add-clean-step, rm -rf $(PRODUCT_OUT)/system/bin/sh)
 $(call add-clean-step, rm -rf $(PRODUCT_OUT)/system/bin/ash)
+$(call add-clean-step, rm -rf $(PRODUCT_OUT)/system/bin/sh)
+$(call add-clean-step, rm -rf $(PRODUCT_OUT)/system/bin/mksh)
 
 # ************************************************
 # NEWER CLEAN STEPS MUST BE AT THE END OF THE LIST

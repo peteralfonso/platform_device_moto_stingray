@@ -72,6 +72,3 @@ ifneq ($(HAVE_NVIDIA_PROP_SRC),false)
 endif
 
 TARGET_RECOVERY_UI_LIB := librecovery_ui_stingray
-
-# Set /system/bin/sh to mksh, not ash
-TARGET_SHELL := mksh
