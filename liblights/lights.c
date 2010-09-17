@@ -42,12 +42,6 @@
 
 
 static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
-static int batt_rgb_on = 0;
-static int batt_blink = 0;
-static int notification_rgb_on = 0;
-static int notification_blink = 0;
-static int attention_rgb_on = 0;
-static int attention_blink = 0;
 
 static int lcd_brightness_mode = -1;
 
@@ -75,6 +69,27 @@ static int write_int(char const *path, int value)
 	}
 }
 
+static int write_string(char const *path, char const *value)
+{
+	int fd;
+	static int already_warned = -1;
+	fd = open(path, O_RDWR);
+	if (fd >= 0) {
+		char buffer[20];
+		int bytes = sprintf(buffer, "%s\n", value);
+		int amt = write(fd, buffer, bytes);
+		close(fd);
+		return amt == -1 ? -errno : 0;
+	} else {
+		if (already_warned == -1) {
+			LOGE("write_int failed to open %s\n", path);
+			already_warned = 1;
+		}
+		return -errno;
+	}
+}
+
+
 static void set_lcd_brightness_mode(int mode)
 {
 	if (lcd_brightness_mode != mode) {
@@ -82,11 +97,6 @@ static void set_lcd_brightness_mode(int mode)
 			(mode == BRIGHTNESS_MODE_SENSOR ? AUTOMATIC : MANUAL_SENSOR));
 		lcd_brightness_mode = mode;
     }
-}
-
-static int is_lit(struct light_state_t const *state)
-{
-	return state->color & 0x00ffffff;
 }
 
 static int rgb_to_brightness(struct light_state_t const *state)
@@ -113,125 +123,11 @@ set_light_backlight(struct light_device_t *dev,
 }
 
 static int
-set_light_keyboard(struct light_device_t *dev,
-		   struct light_state_t const *state)
-{
-	int err = 0;
-	int brightness = rgb_to_brightness(state);
-
-	pthread_mutex_lock(&g_lock);
-	err = write_int("/sys/class/leds/keyboard-backlight/brightness",
-		      brightness);
-	pthread_mutex_unlock(&g_lock);
-
-	return err;
-}
-
-static int
-set_light_buttons(struct light_device_t *dev, struct light_state_t const *state)
-{
-	int err = 0;
-	int brightness = rgb_to_brightness(state);
-
-	pthread_mutex_lock(&g_lock);
-	err = write_int("/sys/class/leds/button-backlight/brightness",
-		      brightness);
-	pthread_mutex_unlock(&g_lock);
-
-	return err;
-}
-
-static int
-set_attention_led(struct light_device_t *dev, struct light_state_t const *state)
-{
-	int len;
-	int red, green, blue;
-	int blink;
-	int onMS, offMS;
-	unsigned int colorRGB;
-
-	switch (state->flashMode) {
-	case LIGHT_FLASH_TIMED:
-		onMS = state->flashOnMS;
-		offMS = state->flashOffMS;
-		break;
-	case LIGHT_FLASH_NONE:
-	default:
-		onMS = 0;
-		offMS = 0;
-		break;
-	}
-
-	colorRGB = state->color;
-
-#if 0
-	LOGD("set_attention colorRGB=%08X, onMS=%d, offMS=%d\n",
-	     colorRGB, onMS, offMS);
-#endif
-
-	red = (colorRGB >> 16) & 0xFF;
-	green = (colorRGB >> 8) & 0xFF;
-	blue = colorRGB & 0xFF;
-
-	/* Ignore the SOL beacon */
-	if (red & green & blue)
-		return 0;
-
-	if (onMS > 0 && offMS > 0) {
-		blink = 1;
-		attention_blink = 1;
-	} else {
-		if (batt_blink || notification_blink) {
-			blink = 1;
-		}
-		else {
-			attention_blink = 0;
-			blink = 0;
-		}
-	}
-
-	if (red || green || blue) {
-		attention_rgb_on = colorRGB & 0x00ffffff;
-	} else  {
-		attention_rgb_on = 0x00;
-	}
-
-	if (attention_rgb_on == 0) {
-		if (batt_rgb_on) {
-			red = (batt_rgb_on >> 16) & 0xFF;
-			green = (batt_rgb_on >> 8) & 0xFF;
-			blue = batt_rgb_on & 0xFF;
-		} else if (notification_rgb_on) {
-			red = (notification_rgb_on >> 16) & 0xFF;
-			green = (notification_rgb_on >> 8) & 0xFF;
-			blue = notification_rgb_on & 0xFF;
-		}
-	} else if(batt_rgb_on) {
-		red = (batt_rgb_on >> 16) & 0xFF;
-		green = (batt_rgb_on >> 8) & 0xFF;
-		blue = batt_rgb_on & 0xFF;
-	}
-
-	pthread_mutex_lock(&g_lock);
-
-	write_int("/sys/class/leds/red/blink", blink);
-	write_int("/sys/class/leds/red/brightness", red);
-	write_int("/sys/class/leds/green/brightness", green);
-	write_int("/sys/class/leds/blue/brightness", blue);
-
-	pthread_mutex_unlock(&g_lock);
-
-	return 0;
-}
-
-static int
 set_msg_indicator(struct light_device_t *dev, struct light_state_t const *state)
 {
-	int len;
-	int red, green, blue;
 	int blink;
 	int onMS, offMS;
-	unsigned int colorRGB;
+	unsigned int brightness;
 
 	switch (state->flashMode) {
 	case LIGHT_FLASH_TIMED:
@@ -245,144 +141,27 @@ set_msg_indicator(struct light_device_t *dev, struct light_state_t const *state)
 		break;
 	}
 
-	colorRGB = state->color;
-
-#if 0
+#if 1
 	LOGD("set_notification colorRGB=%08X, onMS=%d, offMS=%d\n",
-	     colorRGB, onMS, offMS);
+	     state->color, onMS, offMS);
 #endif
 
-	red = (colorRGB >> 16) & 0xFF;
-	green = (colorRGB >> 8) & 0xFF;
-	blue = colorRGB & 0xFF;
+	brightness = rgb_to_brightness(state);
 
-	/* Ignore the SOL beacon */
-	if (red & green & blue)
-		return 0;
-
-	if (onMS > 0 && offMS > 0) {
+	if (onMS > 0 && offMS > 0)
 		blink = 1;
-		notification_blink = 1;
-
-	} else {
-		if (batt_blink || attention_blink) {
-			blink = 1;
-		} else {
-			notification_blink = 0;
-			blink = 0;
-		}
-	}
-
-	if (red || green || blue) {
-		notification_rgb_on = colorRGB & 0x00ffffff;
-	} else  {
-		notification_rgb_on = 0x00;
-	}
-
-	if (notification_rgb_on == 0) {
-		if (batt_rgb_on) {
-			red = (batt_rgb_on >> 16) & 0xFF;
-			green = (batt_rgb_on >> 8) & 0xFF;
-			blue = batt_rgb_on & 0xFF;
-		} else if (attention_rgb_on) {
-			red = (attention_rgb_on >> 16) & 0xFF;
-			green = (attention_rgb_on >> 8) & 0xFF;
-			blue = attention_rgb_on & 0xFF;
-		}
-	} else if(batt_rgb_on) {
-		red = (batt_rgb_on >> 16) & 0xFF;
-		green = (batt_rgb_on >> 8) & 0xFF;
-		blue = batt_rgb_on & 0xFF;
-	}
-
-	pthread_mutex_lock(&g_lock);
-	write_int("/sys/class/leds/red/blink", blink);
-	write_int("/sys/class/leds/red/brightness", red);
-	write_int("/sys/class/leds/green/brightness", green);
-	write_int("/sys/class/leds/blue/brightness", blue);
-
-	pthread_mutex_unlock(&g_lock);
-
-	return 0;
-}
-
-static int
-set_batt_indicator(struct light_device_t *dev, struct light_state_t const *state)
-{
-	int len;
-	int red, green, blue;
-    int blink;
-	int onMS, offMS;
-	unsigned int colorRGB;
-
-	switch (state->flashMode) {
-	case LIGHT_FLASH_TIMED:
-		onMS = state->flashOnMS;
-		offMS = state->flashOffMS;
-		break;
-	case LIGHT_FLASH_NONE:
-	default:
-		onMS = 0;
-		offMS = 0;
-		break;
-	}
-
-	colorRGB = state->color;
-#if 0
-	LOGD("set_batt colorRGB=%08X, onMS=%d, offMS=%d\n",
-	     colorRGB, onMS, offMS);
-#endif
-
-	red = (colorRGB >> 16) & 0xFF;
-	green = (colorRGB >> 8) & 0xFF;
-	blue = colorRGB & 0xFF;
-
-	if (onMS > 0 && offMS > 0) {
-		batt_blink = 1;
-		blink = 1;
-	} else {
-		if (notification_blink || attention_blink) {
-			blink = 1;
-		} else {
-			batt_blink = 0;
-			blink = 0;
-		}
-	}
-
-	if (red) {
-		if (green) {
-			batt_rgb_on = 0x00;
-			red = 0x0;
-			green = 0x0;
-			blue = 0x0;
-		} else {
-			batt_rgb_on = colorRGB & 0x00ffffff;
-		}
-	} else {
-		batt_rgb_on = 0x00;
-		red = 0x0;
-		green = 0x0;
-		blue = 0x0;
-	}
-
-	if (batt_rgb_on == 0) {
-		if (notification_rgb_on) {
-			red = (notification_rgb_on >> 16) & 0xFF;
-			green = (notification_rgb_on >> 8) & 0xFF;
-			blue = notification_rgb_on & 0xFF;
-		} else if (attention_rgb_on) {
-			red = (attention_rgb_on >> 16) & 0xFF;
-			green = (attention_rgb_on >> 8) & 0xFF;
-			blue = attention_rgb_on & 0xFF;
-		}
-	}
+	else
+		blink = 0;
 
 	pthread_mutex_lock(&g_lock);
 
-	write_int("/sys/class/leds/red/blink", blink);
-	write_int("/sys/class/leds/red/brightness", red);
-	write_int("/sys/class/leds/green/brightness", green);
-	write_int("/sys/class/leds/blue/brightness", blue);
+	if ( brightness == 0 ) {
+		write_int("/sys/class/leds/notification-led/brightness", brightness);
+		write_string("/sys/class/leds/notification-led/trigger", "timer");
+	} else {
+		write_int("/sys/class/leds/notification-led/brightness", brightness);
+		write_int("/sys/class/leds/notification-led/delay_on", blink);
+	}
 
 	pthread_mutex_unlock(&g_lock);
 
@@ -414,16 +193,8 @@ static int open_lights(const struct hw_module_t *module, char const *name,
 
 	if (0 == strcmp(LIGHT_ID_BACKLIGHT, name))
 		set_light = set_light_backlight;
-	else if (0 == strcmp(LIGHT_ID_KEYBOARD, name))
-		set_light = set_light_keyboard;
-	else if (0 == strcmp(LIGHT_ID_BUTTONS, name))
-		set_light = set_light_buttons;
-	else if (0 == strcmp(LIGHT_ID_BATTERY, name))
-		set_light = set_batt_indicator;
 	else if (0 == strcmp(LIGHT_ID_NOTIFICATIONS, name))
 		set_light = set_msg_indicator;
-	else if (0 == strcmp(LIGHT_ID_ATTENTION, name))
-		set_light = set_attention_led;
 	else
 		return -EINVAL;
 
