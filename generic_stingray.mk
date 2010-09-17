@@ -10,5 +10,3 @@ PRODUCT_DEVICE := stingray
 PRODUCT_LOCALES += en_US
 PRODUCT_MODEL := Flatfish # STOPSHIP should be: Motorola Stingray
 PRODUCT_NAME := stingray
-
-DEVICE_PACKAGE_OVERLAYS := device/moto/stingray/overlay
