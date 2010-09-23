@@ -1,5 +1,5 @@
 /*
-** Copyright 2008, The Android Open-Source Project
+** Copyright 2008-2010, The Android Open-Source Project
 **
 ** Licensed under the Apache License, Version 2.0 (the "License");
 ** you may not use this file except in compliance with the License.
@@ -27,6 +27,7 @@
 
 extern "C" {
 #include <linux/msm_audio.h>
+#include "cto_audio_mm.h"
 }
 
 namespace android {
@@ -85,21 +86,25 @@ public:
     virtual    void        closeInputStream(AudioStreamIn* in);
 
     virtual    size_t      getInputBufferSize(uint32_t sampleRate, int format, int channelCount);
-               void        clearCurDevice() { mCurOutDevice = mCurInDevice = -1; }
 
 protected:
     virtual status_t    dump(int fd, const Vector<String16>& args);
 
 private:
 
-    status_t    doAudioRouteOrMute();
     status_t    setMicMute_nosync(bool state);
     status_t    checkMicMute();
     status_t    dumpInternals(int fd, const Vector<String16>& args);
     uint32_t    getInputSampleRate(uint32_t sampleRate);
-    bool        checkOutputStandby();
+    status_t    doStandby(bool output, bool enable);
     status_t    doRouting();
+
     AudioStreamInTegra*   getActiveInput_l();
+    uint32_t    convOutDevToCTO(uint32_t outDev);
+    uint32_t    convRateToCto(uint32_t rate);
+    void        setCtoAudioRate(int rate);
+    void        setCtoAudioDev(uint32_t outDev, uint32_t inDev);
+    void        configCtoAudio();
 
     class AudioStreamOutTegra : public AudioStreamOut {
     public:
@@ -115,24 +120,27 @@ private:
         virtual size_t      bufferSize() const { return 4096; }
         virtual uint32_t    channels() const { return AudioSystem::CHANNEL_OUT_STEREO; }
         virtual int         format() const { return AudioSystem::PCM_16_BIT; }
+        virtual uint32_t    bytesPerSample() const { int ret = 1;
+                                                     if (format()==AudioSystem::PCM_16_BIT) ret*=2;
+                                                     if (channels()==AudioSystem::CHANNEL_OUT_STEREO) ret*=2;
+                                                     return ret; }
         virtual uint32_t    latency() const { return (1000*AUDIO_HW_NUM_OUT_BUF*(bufferSize()/frameSize()))/sampleRate()+AUDIO_HW_OUT_LATENCY_MS; }
         virtual status_t    setVolume(float left, float right) { return INVALID_OPERATION; }
         virtual ssize_t     write(const void* buffer, size_t bytes);
         virtual status_t    standby();
+        virtual status_t    online();
         virtual status_t    dump(int fd, const Vector<String16>& args);
-                bool        checkStandby();
+                bool        getStandby();
         virtual status_t    setParameters(const String8& keyValuePairs);
         virtual String8     getParameters(const String8& keys);
                 uint32_t    devices() { return mDevices; }
         virtual status_t    getRenderPosition(uint32_t *dspFrames);
-
     private:
                 AudioHardware* mHardware;
                 int         mFd;
                 int         mFdCtl;
                 int         mStartCount;
                 int         mRetryCount;
-                bool        mStandby;
                 uint32_t    mDevices;
     };
 
@@ -160,6 +168,8 @@ private:
         virtual ssize_t     read(void* buffer, ssize_t bytes);
         virtual status_t    dump(int fd, const Vector<String16>& args);
         virtual status_t    standby();
+        virtual status_t    online();
+                bool        getStandby();
         virtual status_t    setParameters(const String8& keyValuePairs);
         virtual String8     getParameters(const String8& keys);
         virtual unsigned int  getInputFramesLost() const { return 0; }
@@ -188,13 +198,21 @@ private:
             AudioStreamOutTegra*  mOutput;
             SortedVector <AudioStreamInTegra*>   mInputs;
 
-            int mCurOutDevice;
-            int mCurInDevice;
+            struct cpcap_audio_stream mCurOutDevice;
+            struct cpcap_audio_stream mCurInDevice;
+        // CTO Audio Processing storage buffers
+            int16_t     mPcmLoggingBuf[((CTO_AUDIO_MM_DATALOGGING_BUFFER_BLOCK_BYTESIZE)/2)];
+            uint32_t    mNoiseEst[((CTO_AUDIO_MM_NOISE_EST_BLOCK_BYTESIZE)/4)];
+            uint16_t    mRuntimeParam[((CTO_AUDIO_MM_RUNTIME_PARAM_BYTESIZE)/2)];
+            uint16_t    mStaticMem[((CTO_AUDIO_MM_STATICMEM_BLOCK_BYTESIZE)/2)];
+            uint16_t    mScratchMem[((CTO_AUDIO_MM_SCRATCHMEM_BLOCK_BYTESIZE)/2)];
+            CTO_AUDIO_MM_ENV_VAR mAudioMmEnvVar;
 
      friend class AudioStreamInTegra;
             Mutex       mLock;
+            Mutex       mCtoLock;
 
-            int sndDevice;
+            int mCpcapCtlFd;
 };
 
 // ----------------------------------------------------------------------------

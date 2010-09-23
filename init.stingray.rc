@@ -67,6 +67,12 @@ on boot
     chmod 666 /dev/nvhost-mpe
     chmod 666 /dev/nvhost-vi
 
+# Camera flash
+    chown media camera /sys/class/leds/flash/brightness
+    chown media camera /sys/class/leds/torch/brightness
+    chmod 660 /sys/class/leds/flash/brightness
+    chmod 660 /sys/class/leds/torch/brightness
+
 # GPS
     #Create location directory, BRCM guci library stores LTO file and read/write
     # config file.
