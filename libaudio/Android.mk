@@ -52,7 +52,7 @@ LOCAL_STATIC_LIBRARIES += \
     libEverest_motomm-r \
     libCortexA9_aie-r \
     libCortexA9_sas-r \
-    libse-r
+    libCortexA9_se-r
 LOCAL_CFLAGS += -DUSE_PROPRIETARY_AUDIO_EXTENSIONS
 LOCAL_C_INCLUDES += vendor/moto/stingray/motomm
 endif

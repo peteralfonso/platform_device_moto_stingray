@@ -642,7 +642,8 @@ ssize_t AudioHardware::AudioStreamOutTegra::write(const void* buffer, size_t byt
     mHardware->mCtoLock.lock();
     if(mHardware->mAudioMmEnvVar.accy != CTO_AUDIO_MM_ACCY_INVALID) {
         // Apply the CTO audio effects in-place.
-        mHardware->mAudioMmEnvVar.frame_size = bytes / bytesPerSample();
+        // frame_size in this context is the number of samples in the buffer.
+        mHardware->mAudioMmEnvVar.frame_size =  bytes / frameSize();
         api_cto_audio_mm_main(&mHardware->mAudioMmEnvVar, (int16_t *)buffer, (int16_t *)buffer);
     }
     mHardware->mCtoLock.unlock();

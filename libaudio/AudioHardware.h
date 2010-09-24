@@ -124,10 +124,6 @@ private:
         virtual size_t      bufferSize() const { return 4096; }
         virtual uint32_t    channels() const { return AudioSystem::CHANNEL_OUT_STEREO; }
         virtual int         format() const { return AudioSystem::PCM_16_BIT; }
-        virtual uint32_t    bytesPerSample() const { int ret = 1;
-                                                     if (format()==AudioSystem::PCM_16_BIT) ret*=2;
-                                                     if (channels()==AudioSystem::CHANNEL_OUT_STEREO) ret*=2;
-                                                     return ret; }
         virtual uint32_t    latency() const { return (1000*AUDIO_HW_NUM_OUT_BUF*(bufferSize()/frameSize()))/sampleRate()+AUDIO_HW_OUT_LATENCY_MS; }
         virtual status_t    setVolume(float left, float right) { return INVALID_OPERATION; }
         virtual ssize_t     write(const void* buffer, size_t bytes);
