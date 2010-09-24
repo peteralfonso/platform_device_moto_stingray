@@ -29,9 +29,11 @@
 #include <dlfcn.h>
 #include <fcntl.h>
 
+#ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
 // hardware specific functions
-#include "cto_audio_mm.h"
 extern uint16_t HC_CTO_AUDIO_MM_PARAMETER_TABLE[];
+#endif
+
 #include "AudioHardware.h"
 #include <media/AudioRecord.h>
 
@@ -60,6 +62,7 @@ AudioHardware::AudioHardware() :
     ::ioctl(mCpcapCtlFd, CPCAP_AUDIO_OUT_GET_OUTPUT, &mCurOutDevice);
     ::ioctl(mCpcapCtlFd, CPCAP_AUDIO_IN_GET_INPUT, &mCurInDevice);
 
+#ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
     // One-time CTO Audio configuration
     mAudioMmEnvVar.cto_audio_mm_param_block_ptr              = HC_CTO_AUDIO_MM_PARAMETER_TABLE;
     mAudioMmEnvVar.cto_audio_mm_pcmlogging_buffer_block_ptr  = mPcmLoggingBuf;
@@ -69,6 +72,7 @@ AudioHardware::AudioHardware() :
     mAudioMmEnvVar.cto_audio_mm_scratch_memory_block_ptr     = mScratchMem;
     mAudioMmEnvVar.accy = CTO_AUDIO_MM_ACCY_INVALID;
     mAudioMmEnvVar.sample_rate = CTO_AUDIO_MM_SAMPL_44100;
+#endif
 
     mInit = true;
 }
@@ -417,7 +421,9 @@ status_t AudioHardware::doRouting()
              mCurOutDevice.id, mCurOutDevice.on,
              strerror(errno));
 
+#ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
     setCtoAudioDev(mCurOutDevice.id, mCurInDevice.id);
+#endif
     return NO_ERROR;
 }
 
@@ -489,6 +495,8 @@ AudioHardware::AudioStreamInTegra *AudioHardware::getActiveInput_l()
 
     return NULL;
 }
+
+#ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
 
 uint32_t AudioHardware::convOutDevToCTO(uint32_t outDev)
 {
@@ -568,6 +576,8 @@ void AudioHardware::setCtoAudioRate(int sampRate)
     }
 }
 
+#endif /* USE_PROPRIETARY_AUDIO_EXTENSIONS */
+
 // ----------------------------------------------------------------------------
 
 AudioHardware::AudioStreamOutTegra::AudioStreamOutTegra() :
@@ -600,7 +610,10 @@ status_t AudioHardware::AudioStreamOutTegra::set(
         if (pRate) *pRate = sampleRate();
         return BAD_VALUE;
     }
+
+#ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
     mHardware->setCtoAudioRate(lRate);
+#endif
 
     if (pFormat) *pFormat = lFormat;
     if (pChannels) *pChannels = lChannels;
@@ -625,6 +638,7 @@ ssize_t AudioHardware::AudioStreamOutTegra::write(const void* buffer, size_t byt
     ssize_t written;
     const uint8_t* p = static_cast<const uint8_t*>(buffer);
 
+#ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
     mHardware->mCtoLock.lock();
     if(mHardware->mAudioMmEnvVar.accy != CTO_AUDIO_MM_ACCY_INVALID) {
         // Apply the CTO audio effects in-place.
@@ -632,6 +646,7 @@ ssize_t AudioHardware::AudioStreamOutTegra::write(const void* buffer, size_t byt
         api_cto_audio_mm_main(&mHardware->mAudioMmEnvVar, (int16_t *)buffer, (int16_t *)buffer);
     }
     mHardware->mCtoLock.unlock();
+#endif
 
     status = online(); // if already online, a no-op
     if (status < 0) {

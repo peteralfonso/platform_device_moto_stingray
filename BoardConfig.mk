@@ -25,8 +25,11 @@
 # against the traditional rules of inheritance).
 # The proprietary variant sets USE_CAMERA_STUB := false, this way
 # we use the camera stub when the vendor tree isn't present, and
-# the true camera library when the vendor tree is available
+# the true camera library when the vendor tree is available.  Similarly,
+# we set USE_PROPRIETARY_AUDIO_EXTENSIONS to true in the proprietary variant as
+# well.
 USE_CAMERA_STUB := true
+USE_PROPRIETARY_AUDIO_EXTENSIONS := false
 
 # inherit from the proprietary version
 # needed for BP-flashing updater extensions

@@ -27,7 +27,9 @@
 
 extern "C" {
 #include <linux/msm_audio.h>
+#ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
 #include "cto_audio_mm.h"
+#endif
 }
 
 namespace android {
@@ -100,11 +102,13 @@ private:
     status_t    doRouting();
 
     AudioStreamInTegra*   getActiveInput_l();
+#ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
     uint32_t    convOutDevToCTO(uint32_t outDev);
     uint32_t    convRateToCto(uint32_t rate);
     void        setCtoAudioRate(int rate);
     void        setCtoAudioDev(uint32_t outDev, uint32_t inDev);
     void        configCtoAudio();
+#endif
 
     class AudioStreamOutTegra : public AudioStreamOut {
     public:
@@ -200,6 +204,7 @@ private:
 
             struct cpcap_audio_stream mCurOutDevice;
             struct cpcap_audio_stream mCurInDevice;
+#ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
         // CTO Audio Processing storage buffers
             int16_t     mPcmLoggingBuf[((CTO_AUDIO_MM_DATALOGGING_BUFFER_BLOCK_BYTESIZE)/2)];
             uint32_t    mNoiseEst[((CTO_AUDIO_MM_NOISE_EST_BLOCK_BYTESIZE)/4)];
@@ -207,10 +212,11 @@ private:
             uint16_t    mStaticMem[((CTO_AUDIO_MM_STATICMEM_BLOCK_BYTESIZE)/2)];
             uint16_t    mScratchMem[((CTO_AUDIO_MM_SCRATCHMEM_BLOCK_BYTESIZE)/2)];
             CTO_AUDIO_MM_ENV_VAR mAudioMmEnvVar;
+            Mutex       mCtoLock;
+#endif
 
      friend class AudioStreamInTegra;
             Mutex       mLock;
-            Mutex       mCtoLock;
 
             int mCpcapCtlFd;
 };
