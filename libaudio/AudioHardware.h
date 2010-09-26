@@ -27,7 +27,9 @@
 
 extern "C" {
 #include <linux/msm_audio.h>
+#ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
 #include "cto_audio_mm.h"
+#endif
 }
 
 namespace android {
@@ -100,11 +102,13 @@ private:
     status_t    doRouting();
 
     AudioStreamInTegra*   getActiveInput_l();
+#ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
     uint32_t    convOutDevToCTO(uint32_t outDev);
     uint32_t    convRateToCto(uint32_t rate);
     void        setCtoAudioRate(int rate);
     void        setCtoAudioDev(uint32_t outDev, uint32_t inDev);
     void        configCtoAudio();
+#endif
 
     class AudioStreamOutTegra : public AudioStreamOut {
     public:
@@ -120,10 +124,6 @@ private:
         virtual size_t      bufferSize() const { return 4096; }
         virtual uint32_t    channels() const { return AudioSystem::CHANNEL_OUT_STEREO; }
         virtual int         format() const { return AudioSystem::PCM_16_BIT; }
-        virtual uint32_t    bytesPerSample() const { int ret = 1;
-                                                     if (format()==AudioSystem::PCM_16_BIT) ret*=2;
-                                                     if (channels()==AudioSystem::CHANNEL_OUT_STEREO) ret*=2;
-                                                     return ret; }
         virtual uint32_t    latency() const { return (1000*AUDIO_HW_NUM_OUT_BUF*(bufferSize()/frameSize()))/sampleRate()+AUDIO_HW_OUT_LATENCY_MS; }
         virtual status_t    setVolume(float left, float right) { return INVALID_OPERATION; }
         virtual ssize_t     write(const void* buffer, size_t bytes);
@@ -200,6 +200,7 @@ private:
 
             struct cpcap_audio_stream mCurOutDevice;
             struct cpcap_audio_stream mCurInDevice;
+#ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
         // CTO Audio Processing storage buffers
             int16_t     mPcmLoggingBuf[((CTO_AUDIO_MM_DATALOGGING_BUFFER_BLOCK_BYTESIZE)/2)];
             uint32_t    mNoiseEst[((CTO_AUDIO_MM_NOISE_EST_BLOCK_BYTESIZE)/4)];
@@ -207,10 +208,11 @@ private:
             uint16_t    mStaticMem[((CTO_AUDIO_MM_STATICMEM_BLOCK_BYTESIZE)/2)];
             uint16_t    mScratchMem[((CTO_AUDIO_MM_SCRATCHMEM_BLOCK_BYTESIZE)/2)];
             CTO_AUDIO_MM_ENV_VAR mAudioMmEnvVar;
+            Mutex       mCtoLock;
+#endif
 
      friend class AudioStreamInTegra;
             Mutex       mLock;
-            Mutex       mCtoLock;
 
             int mCpcapCtlFd;
 };
