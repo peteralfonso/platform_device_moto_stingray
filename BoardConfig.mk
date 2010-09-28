@@ -68,6 +68,7 @@ BOARD_HAVE_BLUETOOTH_BCM := true
 BOARD_HAVE_GPS := true
 
 USE_OPENGL_RENDERER := true
+BOARD_EGL_CFG := device/moto/stingray/egl.cfg
 
 ifneq ($(HAVE_NVIDIA_PROP_SRC),false)
 # needed for source compilation of nvidia libraries
