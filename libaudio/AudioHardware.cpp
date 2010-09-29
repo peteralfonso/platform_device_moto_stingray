@@ -29,17 +29,8 @@
 #include <dlfcn.h>
 #include <fcntl.h>
 
-#ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
-// hardware specific functions
-extern uint16_t HC_CTO_AUDIO_MM_PARAMETER_TABLE[];
-#endif
-
 #include "AudioHardware.h"
 #include <media/AudioRecord.h>
-
-#ifndef ARRAY_SIZE
-#define ARRAY_SIZE(a) (sizeof(a) / sizeof(a[0]))
-#endif
 
 namespace android {
 const uint32_t AudioHardware::inputSamplingRates[] = {
@@ -63,15 +54,8 @@ AudioHardware::AudioHardware() :
     ::ioctl(mCpcapCtlFd, CPCAP_AUDIO_IN_GET_INPUT, &mCurInDevice);
 
 #ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
-    // One-time CTO Audio configuration
-    mAudioMmEnvVar.cto_audio_mm_param_block_ptr              = HC_CTO_AUDIO_MM_PARAMETER_TABLE;
-    mAudioMmEnvVar.cto_audio_mm_pcmlogging_buffer_block_ptr  = mPcmLoggingBuf;
-    mAudioMmEnvVar.pcmlogging_buffer_block_size              = ARRAY_SIZE(mPcmLoggingBuf);
-    mAudioMmEnvVar.cto_audio_mm_runtime_param_mem_ptr        = mRuntimeParam;
-    mAudioMmEnvVar.cto_audio_mm_static_memory_block_ptr      = mStaticMem;
-    mAudioMmEnvVar.cto_audio_mm_scratch_memory_block_ptr     = mScratchMem;
-    mAudioMmEnvVar.accy = CTO_AUDIO_MM_ACCY_INVALID;
-    mAudioMmEnvVar.sample_rate = CTO_AUDIO_MM_SAMPL_44100;
+    // Init the MM Audio Post Processing
+    mAudioPP.setAudioDev(this, &mCurOutDevice, &mCurInDevice);
 #endif
 
     mInit = true;
@@ -422,7 +406,9 @@ status_t AudioHardware::doRouting()
              strerror(errno));
 
 #ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
-    setCtoAudioDev(mCurOutDevice.id, mCurInDevice.id);
+// TODO: make a cleaner interface with just what's required
+//       to set EC/NS and MM Audio Processing.
+    mAudioPP.setAudioDev(this, &mCurOutDevice, &mCurInDevice);
 #endif
     return NO_ERROR;
 }
@@ -496,88 +482,6 @@ AudioHardware::AudioStreamInTegra *AudioHardware::getActiveInput_l()
     return NULL;
 }
 
-#ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
-
-uint32_t AudioHardware::convOutDevToCTO(uint32_t outDev)
-{
-    // Only loudspeaker and audio docks are currently in this table
-    switch (outDev) {
-       case CPCAP_AUDIO_OUT_SPEAKER:
-           return CTO_AUDIO_MM_ACCY_LOUDSPEAKER;
-//     case CPCAP_AUDIO_OUT_EMU:  Not yet implemented, Basic Dock.
-//         return CTO_AUDIO_MM_ACCY_DOCK;
-       default:
-           return CTO_AUDIO_MM_ACCY_INVALID;
-    }
-}
-uint32_t AudioHardware::convRateToCto(uint32_t rate)
-{
-    switch (rate) {
-        case 44100: // Most likely.
-            return CTO_AUDIO_MM_SAMPL_44100;
-        case 8000:
-            return CTO_AUDIO_MM_SAMPL_8000;
-        case 11025:
-            return CTO_AUDIO_MM_SAMPL_11025;
-        case 12000:
-            return CTO_AUDIO_MM_SAMPL_12000;
-        case 16000:
-            return CTO_AUDIO_MM_SAMPL_16000;
-        case 22050:
-            return CTO_AUDIO_MM_SAMPL_22050;
-        case 24000:
-            return CTO_AUDIO_MM_SAMPL_24000;
-        case 32000:
-            return CTO_AUDIO_MM_SAMPL_32000;
-        case 48000:
-            return CTO_AUDIO_MM_SAMPL_48000;
-        default:
-            return CTO_AUDIO_MM_SAMPL_44100;
-    }
-}
-
-void AudioHardware::configCtoAudio()
-{
-    if (mAudioMmEnvVar.accy != CTO_AUDIO_MM_ACCY_INVALID) {
-        LOGD("Configure CTO Audio MM processing");
-        // fetch the corresponding runtime audio parameter
-        api_cto_audio_mm_param_parser(&(mAudioMmEnvVar), (int16_t *)0, (int16_t *)0);
-        // Initialize algorithm static memory
-        api_cto_audio_mm_init(&(mAudioMmEnvVar), (int16_t *)0, (int16_t *)0);
-    } else {
-        LOGD("CTO Audio MM processing is disabled.");
-    }
-}
-
-// The 2nd parameter is for an input device, not yet used
-// For now, this is only configuring the multimedia audio playback output device.
-void AudioHardware::setCtoAudioDev(uint32_t outDev, uint32_t )
-{
-    uint32_t mm_accy = convOutDevToCTO(outDev);
-    Mutex::Autolock lock(mCtoLock);
-
-    LOGD("setCtoAudioDev %d", outDev);
-    if (mm_accy != mAudioMmEnvVar.accy) {
-        mAudioMmEnvVar.accy = mm_accy;
-        configCtoAudio();
-    }
-}
-
-// Setting the HW sampling rate may require reconfiguration of audio processing.
-void AudioHardware::setCtoAudioRate(int sampRate)
-{
-    uint32_t rate = convRateToCto(sampRate);
-    Mutex::Autolock lock(mCtoLock);
-
-    LOGD("AudioHardware::setCtoAudioRate %d", sampRate);
-    if (rate != mAudioMmEnvVar.sample_rate) {
-        mAudioMmEnvVar.sample_rate = rate;
-        configCtoAudio();
-    }
-}
-
-#endif /* USE_PROPRIETARY_AUDIO_EXTENSIONS */
-
 // ----------------------------------------------------------------------------
 
 AudioHardware::AudioStreamOutTegra::AudioStreamOutTegra() :
@@ -612,7 +516,7 @@ status_t AudioHardware::AudioStreamOutTegra::set(
     }
 
 #ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
-    mHardware->setCtoAudioRate(lRate);
+    mHardware->mAudioPP.setPlayAudioRate(lRate);
 #endif
 
     if (pFormat) *pFormat = lFormat;
@@ -639,14 +543,7 @@ ssize_t AudioHardware::AudioStreamOutTegra::write(const void* buffer, size_t byt
     const uint8_t* p = static_cast<const uint8_t*>(buffer);
 
 #ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
-    mHardware->mCtoLock.lock();
-    if(mHardware->mAudioMmEnvVar.accy != CTO_AUDIO_MM_ACCY_INVALID) {
-        // Apply the CTO audio effects in-place.
-        // frame_size in this context is the number of samples in the buffer.
-        mHardware->mAudioMmEnvVar.frame_size =  bytes / frameSize();
-        api_cto_audio_mm_main(&mHardware->mAudioMmEnvVar, (int16_t *)buffer, (int16_t *)buffer);
-    }
-    mHardware->mCtoLock.unlock();
+    mHardware->mAudioPP.doMmProcessing((void *)buffer, bytes / frameSize());
 #endif
 
     status = online(); // if already online, a no-op

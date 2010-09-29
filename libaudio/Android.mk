@@ -48,6 +48,7 @@ LOCAL_CFLAGS += -fno-short-enums
 LOCAL_STATIC_LIBRARIES += libaudiointerface
 
 ifeq ($(USE_PROPRIETARY_AUDIO_EXTENSIONS),true)
+LOCAL_SRC_FILES += AudioPostProcessor.cpp
 LOCAL_STATIC_LIBRARIES += \
     libEverest_motomm-r \
     libCortexA9_aie-r \
