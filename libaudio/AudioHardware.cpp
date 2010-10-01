@@ -31,10 +31,13 @@
 
 #include "AudioHardware.h"
 #include <media/AudioRecord.h>
+#ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
+#include "src_lib.h"
+#endif
 
 namespace android {
 const uint32_t AudioHardware::inputSamplingRates[] = {
-    8000, 11025, 16000, 22050, 44100
+    8000, 11025, 12000, 16000, 22050, 32000, 44100, 48000
 };
 // ----------------------------------------------------------------------------
 
@@ -52,10 +55,13 @@ AudioHardware::AudioHardware() :
 
     ::ioctl(mCpcapCtlFd, CPCAP_AUDIO_OUT_GET_OUTPUT, &mCurOutDevice);
     ::ioctl(mCpcapCtlFd, CPCAP_AUDIO_IN_GET_INPUT, &mCurInDevice);
+    // For bookkeeping only
+    ::ioctl(mCpcapCtlFd, CPCAP_AUDIO_OUT_GET_RATE, &mHwOutRate);
+    ::ioctl(mCpcapCtlFd, CPCAP_AUDIO_IN_GET_RATE, &mHwInRate);
 
 #ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
     // Init the MM Audio Post Processing
-    mAudioPP.setAudioDev(this, &mCurOutDevice, &mCurInDevice);
+    mAudioPP.setAudioDev(&mCurOutDevice);
 #endif
 
     mInit = true;
@@ -328,6 +334,11 @@ status_t AudioHardware::setMasterVolume(float v)
     return NO_ERROR;
 }
 
+int AudioHardware::getActiveInputRate()
+{
+    AudioStreamInTegra *input = getActiveInput_l();
+    return (input != NULL) ? input->sampleRate() : 0;
+}
 status_t AudioHardware::doRouting()
 {
     Mutex::Autolock lock(mLock);
@@ -353,7 +364,7 @@ status_t AudioHardware::doRouting()
         break;
     }
 
-    switch (outputDevices) {   
+    switch (outputDevices) {
     case AudioSystem::DEVICE_OUT_EARPIECE:
     case AudioSystem::DEVICE_OUT_DEFAULT:
     case AudioSystem::DEVICE_OUT_SPEAKER:
@@ -406,9 +417,47 @@ status_t AudioHardware::doRouting()
              strerror(errno));
 
 #ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
-// TODO: make a cleaner interface with just what's required
-//       to set EC/NS and MM Audio Processing.
-    mAudioPP.setAudioDev(this, &mCurOutDevice, &mCurInDevice);
+    mAudioPP.setAudioDev(&mCurOutDevice);
+
+    //TODO: EC/NS decision that doesn't isn't so presumptuous.
+    bool ecnsEnabled = mCurOutDevice.on && mCurInDevice.on &&
+                       (getActiveInputRate() == 8000 || getActiveInputRate() == 16000);
+    mAudioPP.enableEcns(ecnsEnabled);
+
+    // Check input/output rates for HW.
+    int oldInRate=mHwInRate, oldOutRate=mHwOutRate;
+    if (ecnsEnabled) {
+        mHwInRate = getActiveInputRate();
+        mHwOutRate = mHwInRate;
+        LOGD("EC/NS active, requests rate as %d for in/out", mHwInRate);
+    }
+    else {
+        mHwInRate = getActiveInputRate();
+        if(mHwInRate == 0)
+            mHwInRate = 44100;
+        mHwOutRate = 44100;
+        LOGD("No EC/NS, set input rate %d, output %d.", mHwInRate, mHwOutRate);
+    }
+    if (mHwInRate != oldInRate) {
+        LOGD("Minor TODO: Flush input if active.");
+        if (::ioctl(mCpcapCtlFd, CPCAP_AUDIO_IN_SET_RATE,
+                  mHwInRate) < 0)
+            LOGE("could not set input rate(%d): %s\n",
+                  mHwInRate, strerror(errno));
+        if(::ioctl(mCpcapCtlFd, CPCAP_AUDIO_IN_GET_RATE, &mHwInRate))
+            LOGE("CPCAP driver error reading rates.");
+    }
+    if (mHwOutRate != oldOutRate) {
+        if (::ioctl(mCpcapCtlFd, CPCAP_AUDIO_OUT_SET_RATE,
+                  mHwOutRate) < 0)
+            LOGE("could not set output rate(%d): %s\n",
+                  mHwOutRate, strerror(errno));
+        // Clear old data (wrong rate) from I2S driver.
+        if(mOutput)
+           mOutput->flush();
+        if(::ioctl(mCpcapCtlFd, CPCAP_AUDIO_OUT_GET_RATE, &mHwOutRate))
+            LOGE("CPCAP driver error reading rates.");
+    }
 #endif
     return NO_ERROR;
 }
@@ -534,28 +583,141 @@ AudioHardware::AudioStreamOutTegra::~AudioStreamOutTegra()
     if (mFdCtl >= 0) ::close(mFdCtl);
 }
 
+#ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
+void AudioHardware::AudioStreamOutTegra::srcInit(int inRate, int outRate)
+{
+    SRC_MODE_T srcMode = MODE_END;
+    SRC_STATUS_T initResult;
+
+    mSrcInitted = false;
+    mSrcStaticData.scratch_buffer = mSrcScratchMem;
+
+    if(inRate == 44100) {
+        srcMode = (
+            outRate == 8000  ? SRC_44_08 :
+            outRate == 11025 ? SRC_44_11 :
+            outRate == 12000 ? SRC_44_12 :
+            outRate == 16000 ? SRC_44_16 :
+            outRate == 22050 ? SRC_44_22 :
+            outRate == 24000 ? SRC_44_24 :
+            outRate == 32000 ? SRC_44_32 :
+            /* Invalid */ MODE_END
+        );
+    }
+
+    if(srcMode == MODE_END) {
+        LOGE("Failed to initialize sample rate converter - bad rate");
+        return;
+    }
+    // Do MONO sample rate conversion.  Should be half the MCPS of stereo.
+    // Use SRC_STEREO_INTERLEAVED for stereo data.
+    initResult = src_init(&mSrcStaticData, srcMode, SRC_MONO);
+    if (initResult != SRC_SUCCESS) {
+        LOGE("Failed to initialize sample rate converter - %d",initResult);
+        return;
+    }
+
+    mSrcInitted = true;
+    mSrcInRate = inRate;
+    mSrcOutRate = outRate;
+}
+#endif
+
 ssize_t AudioHardware::AudioStreamOutTegra::write(const void* buffer, size_t bytes)
 {
     // LOGD("AudioStreamOutTegra::write(%p, %u)", buffer, bytes);
     int status = NO_INIT;
     struct tegra_audio_error_counts errors;
-    ssize_t written;
+    ssize_t written = 0;
     const uint8_t* p = static_cast<const uint8_t*>(buffer);
+    size_t outsize = bytes;
 
-#ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
-    mHardware->mAudioPP.doMmProcessing((void *)buffer, bytes / frameSize());
-#endif
+    // Prevent someone from flushing the fd during a write.
+    Mutex::Autolock lock(mFdLock);
 
     status = online(); // if already online, a no-op
     if (status < 0) {
-        // Simulate audio output timing in case of error
-        usleep(bytes * 1000000 / frameSize() / sampleRate());
-        return status;
+        goto error;
     }
 
-    written = ::write(mFd, buffer, bytes);
+#ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
+    // Do Multimedia processing if appropriate for device and usecase.
+    mHardware->mAudioPP.doMmProcessing((void *)buffer, bytes / frameSize());
+
+    // Check if sample rate conversion or ECNS are required.
+    // Caution: Upconversion (from 44.1 to 48) would require a new output buffer larger than the
+    // original one.
+    if(mHardware->mHwOutRate != (int)sampleRate()) {
+        if (!mSrcInitted ||
+             mSrcInRate != (int)sampleRate() ||
+             mSrcOutRate != mHardware->mHwOutRate) {
+            LOGW("%s: downconvert started from %d to %d",__FUNCTION__,
+                 sampleRate(), mHardware->mHwOutRate);
+            srcInit(sampleRate(), mHardware->mHwOutRate);
+            if(!mSrcInitted) {
+                status = -1;
+                goto error;
+            }
+        }
+    } else {
+        mSrcInitted = false;
+    }
+
+    if(mHardware->mAudioPP.isEcnsEnabled() || mSrcInitted)
+    {
+        // cut audio down to Mono for SRC or ECNS
+        if (channels() == AudioSystem::CHANNEL_OUT_STEREO)
+        {
+            // Do stereo-to-mono downmix before SRC, in-place
+            int16_t *destBuf = (int16_t *) buffer;
+            for (int i = 0; i < (int)bytes/2; i++) {
+                 destBuf[i] = (destBuf[i*2]>>1) + (destBuf[i*2+1]>>1);
+            }
+            outsize >>= 1;
+        }
+    }
+
+    if(mSrcInitted) {
+        // Apply the sample rate conversion.
+        mSrcIoData.input_ptrL = (SRC_INT16_T *) (buffer);
+        mSrcIoData.input_count = outsize / sizeof(SRC_INT16_T);
+        mSrcIoData.input_ptrR = (SRC_INT16_T *) (buffer) + 1;
+        mSrcIoData.output_ptr = (SRC_INT16_T *) (buffer);
+        mSrcIoData.output_count = outsize / sizeof(SRC_INT16_T);
+        src_convert(&mSrcStaticData, 0x0800, &mSrcIoData); // 0x0800 is unity gain in Q4.11 format
+        //LOGD("Converted %d bytes at %d to %d bytes at %d",
+        //     outsize, sampleRate(), mSrcIoData.output_count*2, mHardware->mHwOutRate);
+        outsize = mSrcIoData.output_count*2;
+    }
+    if(mHardware->mAudioPP.isEcnsEnabled()) {
+        // EC/NS is a blocking interface, to synchronise with read.
+        // It also consumes data when EC/NS is running.
+        // It expects MONO data.
+        // If EC/NS is not running, it will return 0, and we need to write this data to the
+        // driver ourselves.
+        written = mHardware->mAudioPP.writeDownlinkEcns(mFd,(void *)buffer, outsize);
+    }
+    if(mHardware->mAudioPP.isEcnsEnabled() || mSrcInitted) {
+        // Move audio back up to Stereo, if the EC/NS wasn't in fact running and we're
+        // writing to a stereo device.
+        if (channels() == AudioSystem::CHANNEL_OUT_STEREO &&
+            written != (ssize_t)outsize) {
+            // Back up to stereo, in place.
+            int16_t *destBuf = (int16_t *) buffer;
+            for (int i = outsize/2-1; i >= 0; i--) {
+                destBuf[i*2] = destBuf[i];
+                destBuf[i*2+1] = destBuf[i];
+            }
+            outsize <<= 1;
+        }
+    }
+#endif
+
+    if(written != (ssize_t)outsize) {
+        written = ::write(mFd, buffer, outsize);
+    }
     if (written < 0)
-        LOGE("Error writing %d bytes to output: %s", bytes, strerror(errno));
+        LOGE("Error writing %d bytes to output: %s", outsize, strerror(errno));
     else {
         if (::ioctl(mFdCtl, TEGRA_AUDIO_OUT_GET_ERROR_COUNT, &errors) < 0)
             LOGE("Could not retrieve playback error count: %s\n", strerror(errno));
@@ -564,13 +726,29 @@ ssize_t AudioHardware::AudioStreamOutTegra::write(const void* buffer, size_t byt
                  errors.late_dma, errors.full_empty);
     }
 
-    return written;
+    return written==(ssize_t)outsize? bytes : bytes * written / outsize;
+
+error:
+    LOGE("write(): error");
+    usleep(bytes * 1000000 / frameSize() / sampleRate());
+    return status;
+}
+
+void AudioHardware::AudioStreamOutTegra::flush()
+{
+    // Prevent someone from writing the fd while we do this operation.
+    Mutex::Autolock lock(mFdLock);
+#ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
+    // Make sure read thread isn't stuck writing to this fd in EC/NS
+    mHardware->mAudioPP.writeDownlinkEcns(0,0,0); // fd, buffer, size
+#endif
+    ::close(mFd);
+    mFd = ::open("/dev/audio0_out", O_RDWR);
 }
 
 status_t AudioHardware::AudioStreamOutTegra::online()
 {
     if (mHardware->mCurOutDevice.on) {
-        LOGV("%s: output already online", __FUNCTION__);
         return NO_ERROR;
     }
 
@@ -677,9 +855,6 @@ AudioHardware::AudioStreamInTegra::AudioStreamInTegra() :
     mSampleRate(AUDIO_HW_IN_SAMPLERATE), mBufferSize(AUDIO_HW_IN_BUFFERSIZE),
     mAcoustics((AudioSystem::audio_in_acoustics)0), mDevices(0)
 {
-    // open audio input device
-    mFd = ::open("/dev/audio0_in", O_RDWR);
-    mFdCtl = ::open("/dev/audio0_in_ctl", O_RDWR);
 }
 
 status_t AudioHardware::AudioStreamInTegra::set(
@@ -718,44 +893,19 @@ status_t AudioHardware::AudioStreamInTegra::set(
     LOGV("AudioStreamInTegra::set(%d, %d, %u)", *pFormat, *pChannels, *pRate);
     mHardware = hw;
 
-    // configuration
-    struct tegra_audio_in_config config;
-    status = ::ioctl(mFdCtl, TEGRA_AUDIO_IN_GET_CONFIG, &config);
-    if (status < 0) {
-        LOGE("cannot read input config: %s", strerror(errno));
-        return status;
-    }
-
-    config.stereo = AudioSystem::popCount(*pChannels) == 2;
-    config.rate = *pRate;
-#if 0
-    config.buffer_size = bufferSize();
-    config.buffer_count = 2;
-#endif
-    status = ::ioctl(mFdCtl, TEGRA_AUDIO_IN_SET_CONFIG, &config);
-    if (status < 0) {
-        LOGE("cannot set input config: %s", strerror(errno));
-        if (::ioctl(mFdCtl, TEGRA_AUDIO_IN_GET_CONFIG, &config) == 0) {
-            if (config.stereo) {
-                *pChannels = AudioSystem::CHANNEL_IN_STEREO;
-            } else {
-                *pChannels = AudioSystem::CHANNEL_IN_MONO;
-            }
-            *pRate = config.rate;
-        }
-        return status;
-    }
-
     mDevices = devices;
     mFormat = AUDIO_HW_IN_FORMAT;
     mChannels = *pChannels;
-    mSampleRate = config.rate;
-    mBufferSize = AUDIO_HW_IN_BUFFERSIZE;
+    mSampleRate = *pRate;
+    // 20 millisecond buffers default
+    mBufferSize = mSampleRate * sizeof(int16_t) * AudioSystem::popCount(mChannels) / 50;
+    if(mBufferSize & 0x3) {
+       // Not divisible by 4.
+       mBufferSize +=4;
+       mBufferSize &= ~0x3;
+    }
 
-    //mHardware->setMicMute_nosync(false);
-    mState = AUDIO_INPUT_OPENED;
-
-    return mHardware->doStandby(false, false); // input, online
+    return NO_ERROR;
 }
 
 AudioHardware::AudioStreamInTegra::~AudioStreamInTegra()
@@ -782,19 +932,15 @@ ssize_t AudioHardware::AudioStreamInTegra::read(void* buffer, ssize_t bytes)
         return -1;
     }
 
-    online();
-
-    if (mState < AUDIO_INPUT_OPENED) {
-        Mutex::Autolock lock(mHardware->mLock);
-        if (set(mHardware, mDevices, &mFormat, &mChannels, &mSampleRate, mAcoustics) != NO_ERROR) {
-            LOGE("%s: set() failed", __FUNCTION__);
-            return -1;
-        }
-    }
-
     if (mState < AUDIO_INPUT_STARTED) {
         mState = AUDIO_INPUT_STARTED;
         mHardware->doRouting();
+    }
+
+    ret = online();
+    if(ret != NO_ERROR) {
+       LOGE("%s: Problem switching to online.",__FUNCTION__);
+       return -1;
     }
 
     ret = ::read(mFd, buffer, bytes);
@@ -807,6 +953,9 @@ ssize_t AudioHardware::AudioStreamInTegra::read(void* buffer, ssize_t bytes)
         LOGW("Recorded %d bytes with %d late, %d overflow errors\n", (int)ret,
              errors.late_dma, errors.full_empty);
 
+#ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
+    mHardware->mAudioPP.applyUplinkEcns(buffer, bytes, mSampleRate);
+#endif
     return ret;
 }
 
@@ -838,24 +987,58 @@ status_t AudioHardware::AudioStreamInTegra::standby()
 
 status_t AudioHardware::AudioStreamInTegra::online()
 {
+    status_t status;
     if (mHardware->mCurInDevice.on) {
-        LOGV("%s: input already online", __FUNCTION__); //@@@@@@
         return NO_ERROR;
     }
 
     LOGV("%s", __FUNCTION__);
-    status_t rc = mHardware->doStandby(false, false); // input, online
-#if 0
-    if (!rc) {
-        /* Start recording, if ongoing and previously paused.  Muting the
-         * microphone will cause CPCAP to not send data through the i2s
-         * interface, and read() will block until recording is resumed.
-         */
-        LOGV("%s: start/resume recording", __FUNCTION__);
-        ::ioctl(mFd, TEGRA_AUDIO_IN_START);
+
+    // open audio input device
+    mFd = ::open("/dev/audio1_in", O_RDWR);
+    mFdCtl = ::open("/dev/audio1_in_ctl", O_RDWR);
+
+    // configuration
+    struct tegra_audio_in_config config;
+    status = ::ioctl(mFdCtl, TEGRA_AUDIO_IN_GET_CONFIG, &config);
+    if (status < 0) {
+        LOGE("cannot read input config: %s", strerror(errno));
+        return status;
     }
-#endif
-    return rc;
+    config.stereo = AudioSystem::popCount(mChannels) == 2;
+    // TODO: Disable SRC in Kernel
+    // config.rate = mSampleRate;
+    config.rate = 44100;
+    status = ::ioctl(mFdCtl, TEGRA_AUDIO_IN_SET_CONFIG, &config);
+
+    if (status < 0) {
+        LOGE("cannot set input config: %s", strerror(errno));
+        if (::ioctl(mFdCtl, TEGRA_AUDIO_IN_GET_CONFIG, &config) == 0) {
+            if (config.stereo) {
+                mChannels = AudioSystem::CHANNEL_IN_STEREO;
+            } else {
+                mChannels = AudioSystem::CHANNEL_IN_MONO;
+            }
+        }
+    }
+
+    // Shoot for 20 msec minimum of chunk size, mBufferSize is 20 msec.
+    struct tegra_audio_buf_config buf_config;
+    int chunk_temp = mBufferSize;
+    buf_config.chunk = 0;
+    do {
+       buf_config.chunk++;
+       chunk_temp >>=1;
+    } while(chunk_temp);
+    buf_config.size = buf_config.chunk+1;
+    buf_config.threshold = buf_config.chunk;
+
+    if (::ioctl(mFdCtl, TEGRA_AUDIO_IN_SET_BUF_CONFIG, &buf_config)) {
+       LOGE("Error setting buffer sizes, is capture running?");
+    }
+
+    mState = AUDIO_INPUT_OPENED;
+    return mHardware->doStandby(false, false); // input, online
 }
 
 status_t AudioHardware::AudioStreamInTegra::dump(int fd, const Vector<String16>& args)
