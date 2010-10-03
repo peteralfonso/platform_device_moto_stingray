@@ -41,7 +41,7 @@
          <EriInfo RoamingIndicator="1"
                   IconIndex="1"
                   IconMode="0"
-                  EriText=""
+                  EriText="Verizon Wireless"
                   CallPromptId="0"
                   AlertId="0"/>
 
