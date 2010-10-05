@@ -84,7 +84,7 @@ main(int argc, char *argv[])
     const int bits_per_sample = 16;
     int sampling_rate = -1;
     int num_channels = -1;
-    unsigned errors, errors_tot;
+    struct tegra_audio_error_counts errors, errors_tot;
 
     struct tegra_audio_in_config cfg;
     struct wav_header hdr;
@@ -157,7 +157,7 @@ main(int argc, char *argv[])
         FAILIF(lseek(ofd, sizeof(struct wav_header), SEEK_SET) < 0,
                "seek error: %s\n", strerror(errno));
 
-    errors_tot = 0;
+    memset(&errors_tot, 0, sizeof(errors_tot));
     do {
         errno = 0;
         nr = read(ifd, buffer, sizeof(buffer));
@@ -171,11 +171,13 @@ main(int argc, char *argv[])
             break;
         }
 
-        if (!errors)
+        if (!errors.late_dma && !errors.full_empty)
             printf("in %d\n", nr);
         else {
-            printf("in %d (%d errors)\n", nr, errors);
-            errors_tot += errors;
+            printf("in %d (%d late, %d overflow errors)\n", nr,
+                   errors.late_dma, errors.full_empty);
+            errors_tot.late_dma += errors.late_dma;
+            errors_tot.full_empty += errors.full_empty;
         }
 
         nw = write(ofd, buffer, nr);
@@ -187,7 +189,8 @@ main(int argc, char *argv[])
     FAILIF(ioctl(ifd_c, TEGRA_AUDIO_IN_GET_ERROR_COUNT, &errors) < 0,
            "Could not retrieve error count: %s\n", strerror(errno));
 
-    printf("recorded with %d errors\n", errors_tot);
+    printf("recorded with %d late, %d overflow errors\n",
+           errors_tot.late_dma, errors_tot.full_empty);
 
     if (wave) {
         printf("writing WAV header\n");

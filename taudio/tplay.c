@@ -23,7 +23,7 @@ main(int argc, char *argv[])
     struct tegra_audio_buf_config config;
     char *buffer;
     int len;
-    unsigned errors;
+    struct tegra_audio_error_counts errors, errors_tot;
 
     argc--, argv++;
     FAILIF(!argc, "Expecting a file to play!\n");
@@ -46,20 +46,7 @@ main(int argc, char *argv[])
     buffer = malloc(len);
     FAILIF(!buffer, "Could not allocate %d bytes!\n", len);
 
-    /* Preload the fifo */    
-    nr = read(ifd, buffer, len);
-    if (!nr) {
-        printf("EOF (empty file)\n");
-        return 0;
-    }
-
-    preload.data = buffer;
-    preload.len = len;
-    FAILIF(ioctl(ofd_c, TEGRA_AUDIO_OUT_PRELOAD_FIFO, &preload) < 0,
-           "Could not preload output fifo: %s\n", strerror(errno));
-    printf("preloaded output fifo with %d (out of %d) bytes\n",
-           preload.len_written, preload.len);
-
+    memset(&errors_tot, 0, sizeof(errors_tot));
     do {
         nr = read(ifd, buffer, len);
         if (!nr) {
@@ -70,12 +57,23 @@ main(int argc, char *argv[])
         nw = write(ofd, buffer, nr);
         FAILIF(nw < 0, "Could not copy to output: %s\n", strerror(errno));
         FAILIF(nw != nr, "Mismatch nw = %d nr = %d\n", nw, nr);
+
+        FAILIF(ioctl(ofd_c, TEGRA_AUDIO_OUT_GET_ERROR_COUNT, &errors) < 0,
+               "Could not get error count: %s\n", strerror(errno));
+
+        if (errors.late_dma || errors.full_empty) {
+            printf("out %d (%d late, %d underrun errors)\n", nw,
+                   errors.late_dma, errors.full_empty);
+            errors_tot.late_dma += errors.late_dma;
+            errors_tot.full_empty += errors.full_empty;
+        }
+        else
+            printf("out %d\n", nw);
+
     } while (1);
 
-    FAILIF(ioctl(ofd_c, TEGRA_AUDIO_OUT_GET_ERROR_COUNT, &errors) < 0,
-           "Could not get error count: %s\n", strerror(errno));
-    printf("played with %d errors\n", errors);
-
+    printf("played with %d late, %d underflow errors\n",
+           errors.late_dma, errors.full_empty);
     return 0;
 }
 
