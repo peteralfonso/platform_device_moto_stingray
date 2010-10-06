@@ -518,6 +518,12 @@ status_t AudioHardware::doRouting_l()
     case AudioSystem::DEVICE_OUT_SPEAKER | AudioSystem::DEVICE_OUT_WIRED_HEADPHONE:
         sndOutDevice = CPCAP_AUDIO_OUT_HEADSET_AND_SPEAKER;
         break;
+    case AudioSystem::DEVICE_OUT_ANLG_DOCK_HEADSET:
+        sndOutDevice = CPCAP_AUDIO_OUT_ANLG_DOCK_HEADSET;
+        break;
+    case AudioSystem::DEVICE_OUT_DGTL_DOCK_HEADSET:
+      // To be implemented
+        break;
     default:
         break;
     }
@@ -542,13 +548,14 @@ status_t AudioHardware::doRouting_l()
          mCurInDevice.id,
          mCurInDevice.on ? "on" : "off");
 
+    LOGV("current output %d, %s",
+         mCurOutDevice.id,
+         mCurOutDevice.on ? "on" : "off");
+
     if (::ioctl(mCpcapCtlFd, CPCAP_AUDIO_IN_SET_INPUT,
               &mCurInDevice) < 0)
         LOGE("could not set input (%d, on %d): %s\n",
              mCurInDevice.id, mCurInDevice.on, strerror(errno));
-
-    LOGV("current output %d, %s", mCurOutDevice.id,
-         mCurOutDevice.on ? "on" : "off");
 
     if (::ioctl(mCpcapCtlFd, CPCAP_AUDIO_OUT_SET_OUTPUT,
               &mCurOutDevice) < 0)
