@@ -73,6 +73,7 @@ BOARD_EGL_CFG := device/moto/stingray/egl.cfg
 ifneq ($(HAVE_NVIDIA_PROP_SRC),false)
 # needed for source compilation of nvidia libraries
 -include vendor/nvidia/proprietary_src/build/definitions.mk
+-include vendor/nvidia/build/definitions.mk
 endif
 
 TARGET_RECOVERY_UI_LIB := librecovery_ui_stingray

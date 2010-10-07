@@ -538,7 +538,7 @@ ssize_t AudioHardware::AudioStreamOutTegra::write(const void* buffer, size_t byt
 {
     // LOGD("AudioStreamOutTegra::write(%p, %u)", buffer, bytes);
     int status = NO_INIT;
-    unsigned errors;
+    struct tegra_audio_error_counts errors;
     ssize_t written;
     const uint8_t* p = static_cast<const uint8_t*>(buffer);
 
@@ -559,8 +559,9 @@ ssize_t AudioHardware::AudioStreamOutTegra::write(const void* buffer, size_t byt
     else {
         if (::ioctl(mFdCtl, TEGRA_AUDIO_OUT_GET_ERROR_COUNT, &errors) < 0)
             LOGE("Could not retrieve playback error count: %s\n", strerror(errno));
-        else if (errors)
-            LOGW("Played %d bytes with %d errors\n", (int)written, errors);
+        else if (errors.late_dma || errors.full_empty)
+            LOGW("Played %d bytes with %d late, %d underflow errors\n", (int)written,
+                 errors.late_dma, errors.full_empty);
     }
 
     return written;
@@ -773,7 +774,7 @@ AudioHardware::AudioStreamInTegra::~AudioStreamInTegra()
 ssize_t AudioHardware::AudioStreamInTegra::read(void* buffer, ssize_t bytes)
 {
     ssize_t ret;
-    unsigned errors;
+    struct tegra_audio_error_counts errors;
 
     LOGV("AudioStreamInTegra::read(%p, %ld)", buffer, bytes);
     if (!mHardware) {
@@ -802,8 +803,9 @@ ssize_t AudioHardware::AudioStreamInTegra::read(void* buffer, ssize_t bytes)
 
     if (::ioctl(mFdCtl, TEGRA_AUDIO_IN_GET_ERROR_COUNT, &errors) < 0)
         LOGE("Could not retrieve recording error count: %s\n", strerror(errno));
-    else if (errors)
-        LOGW("Recorded %d bytes with %d errors\n", (int)ret, errors);
+    else if (errors.late_dma || errors.full_empty)
+        LOGW("Recorded %d bytes with %d late, %d overflow errors\n", (int)ret,
+             errors.late_dma, errors.full_empty);
 
     return ret;
 }
