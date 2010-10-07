@@ -113,6 +113,9 @@ on boot
     # No need to continuously scan w1 bus
     write /sys/devices/w1\ bus\ master/w1_master_search 1
 
+    # HACK prevent LP0
+    write /d/suspend_mode lp1
+
 service nvrm_daemon /system/bin/nvrm_daemon
     user root
     onrestart restart servicemanager
