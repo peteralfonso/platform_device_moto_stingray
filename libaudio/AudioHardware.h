@@ -25,6 +25,9 @@
 
 #include <hardware_legacy/AudioHardwareBase.h>
 #include "AudioPostProcessor.h"
+#ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
+#include "src_type_def.h"
+#endif
 extern "C" {
 #include <linux/msm_audio.h>
 }
@@ -85,10 +88,9 @@ public:
     virtual    void        closeInputStream(AudioStreamIn* in);
 
     virtual    size_t      getInputBufferSize(uint32_t sampleRate, int format, int channelCount);
-
 protected:
     virtual status_t    dump(int fd, const Vector<String16>& args);
-
+    virtual     int     getActiveInputRate();
 private:
 
     status_t    setMicMute_nosync(bool state);
@@ -117,6 +119,7 @@ private:
         virtual uint32_t    latency() const { return (1000*AUDIO_HW_NUM_OUT_BUF*(bufferSize()/frameSize()))/sampleRate()+AUDIO_HW_OUT_LATENCY_MS; }
         virtual status_t    setVolume(float left, float right) { return INVALID_OPERATION; }
         virtual ssize_t     write(const void* buffer, size_t bytes);
+        virtual void        flush();
         virtual status_t    standby();
         virtual status_t    online();
         virtual status_t    dump(int fd, const Vector<String16>& args);
@@ -132,6 +135,17 @@ private:
                 int         mStartCount;
                 int         mRetryCount;
                 uint32_t    mDevices;
+                Mutex       mFdLock;
+#ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
+                void srcInit(int inRate, int outRate);
+                SRC_MODE_T mSrcMode;
+                SRC_OBJ_T mSrcStaticData;
+                SRC_IO_OBJ_T mSrcIoData;
+                SRC_INT16_T mSrcScratchMem[SRC_MAX_MEM];
+                int mSrcInRate;
+                int mSrcOutRate;
+                bool mSrcInitted;
+#endif
     };
 
     class AudioStreamInTegra : public AudioStreamIn {
@@ -195,6 +209,8 @@ private:
             Mutex       mLock;
 
             int mCpcapCtlFd;
+            int mHwOutRate;
+            int mHwInRate;
 #ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
             AudioPostProcessor mAudioPP;
 #endif

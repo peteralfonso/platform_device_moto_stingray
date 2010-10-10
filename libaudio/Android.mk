@@ -53,9 +53,14 @@ LOCAL_STATIC_LIBRARIES += \
     libEverest_motomm-r \
     libCortexA9_aie-r \
     libCortexA9_sas-r \
-    libCortexA9_se-r
+    libCortexA9_se-r \
+    libCortexA9_motovoice-r \
+    libCortexA9_ecns-r \
+    libsamplerateconverter
+
 LOCAL_CFLAGS += -DUSE_PROPRIETARY_AUDIO_EXTENSIONS
-LOCAL_C_INCLUDES += vendor/moto/stingray/motomm
+LOCAL_C_INCLUDES += vendor/moto/stingray/motomm/ghdr
+LOCAL_C_INCLUDES += vendor/moto/stingray/motomm/src
 endif
 
 ifeq ($(BOARD_HAVE_BLUETOOTH),true)

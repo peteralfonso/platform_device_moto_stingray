@@ -78,7 +78,7 @@ int init_nusensors(hw_module_t const* module, hw_device_t** device);
 #define EVENT_TYPE_MAGV_Y           ABS_HAT0Y
 #define EVENT_TYPE_MAGV_Z           ABS_BRAKE
 
-#define EVENT_TYPE_LIGHT            LED_MISC
+#define EVENT_TYPE_LIGHT            MSC_RAW
 #define EVENT_TYPE_PRESSURE         ABS_PRESSURE
 
 #define EVENT_TYPE_GYRO_P           REL_RX

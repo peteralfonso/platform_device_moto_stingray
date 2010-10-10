@@ -89,16 +89,6 @@ static int write_string(char const *path, char const *value)
 	}
 }
 
-
-static void set_lcd_brightness_mode(int mode)
-{
-	if (lcd_brightness_mode != mode) {
-		write_int("/sys/class/leds/lcd-backlight/als",
-			(mode == BRIGHTNESS_MODE_SENSOR ? AUTOMATIC : MANUAL_SENSOR));
-		lcd_brightness_mode = mode;
-    }
-}
-
 static int rgb_to_brightness(struct light_state_t const *state)
 {
 	int color = state->color & 0x00ffffff;
@@ -115,7 +105,6 @@ set_light_backlight(struct light_device_t *dev,
 	int brightness = rgb_to_brightness(state);
 
 	pthread_mutex_lock(&g_lock);
-	set_lcd_brightness_mode(state->brightnessMode);
 	err = write_int("/sys/class/leds/lcd-backlight/brightness", brightness);
 	pthread_mutex_unlock(&g_lock);
 
