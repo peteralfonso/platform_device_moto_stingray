@@ -105,6 +105,9 @@ on boot
     # Wakelock debug
     write /sys/module/wakelock/parameters/debug_mask 7
 
+    # HACK prevent LP0
+    write /d/suspend_mode lp1
+
 service nvrm_daemon /system/bin/nvrm_daemon
     user root
     onrestart restart servicemanager
