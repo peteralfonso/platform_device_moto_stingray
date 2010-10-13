@@ -722,7 +722,7 @@ ssize_t AudioHardware::AudioStreamOutTegra::write(const void* buffer, size_t byt
         if (::ioctl(mFdCtl, TEGRA_AUDIO_OUT_GET_ERROR_COUNT, &errors) < 0)
             LOGE("Could not retrieve playback error count: %s\n", strerror(errno));
         else if (errors.late_dma || errors.full_empty)
-            LOGW("Played %d bytes with %d late, %d underflow errors\n", (int)written,
+            LOGV("Played %d bytes with %d late, %d underflow errors\n", (int)written,
                  errors.late_dma, errors.full_empty);
     }
 
@@ -950,7 +950,7 @@ ssize_t AudioHardware::AudioStreamInTegra::read(void* buffer, ssize_t bytes)
     if (::ioctl(mFdCtl, TEGRA_AUDIO_IN_GET_ERROR_COUNT, &errors) < 0)
         LOGE("Could not retrieve recording error count: %s\n", strerror(errno));
     else if (errors.late_dma || errors.full_empty)
-        LOGW("Recorded %d bytes with %d late, %d overflow errors\n", (int)ret,
+        LOGV("Recorded %d bytes with %d late, %d overflow errors\n", (int)ret,
              errors.late_dma, errors.full_empty);
 
 #ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
