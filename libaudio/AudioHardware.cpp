@@ -1031,7 +1031,7 @@ status_t AudioHardware::AudioStreamInTegra::online()
        chunk_temp >>=1;
     } while(chunk_temp);
     buf_config.size = buf_config.chunk+1;
-    buf_config.threshold = buf_config.chunk;
+    buf_config.threshold = buf_config.chunk-1;
 
     if (::ioctl(mFdCtl, TEGRA_AUDIO_IN_SET_BUF_CONFIG, &buf_config)) {
        LOGE("Error setting buffer sizes, is capture running?");

@@ -47,6 +47,7 @@ private:
 
             void        initEcns(int rate, int bytes);
             void        stopEcns(void);
+            void        ecnsLogToFile(int bytes);
 
         // CTO Multimedia Audio Processing storage buffers
             int16_t     mPcmLoggingBuf[((CTO_AUDIO_MM_DATALOGGING_BUFFER_BLOCK_BYTESIZE)/2)];
@@ -70,7 +71,7 @@ private:
             int         mEcnsOutBufReadOffset;
             int         mEcnsOutFd;       // fd pointing to output driver
             int         mEcnsMode;
-            FILE *      mLogFp; // for datalogging EC/NS points
+            FILE *      mLogFp[5];
 
         // EC/NS Module memory
             T_MOT_MEM_BLOCKS mMemBlocks;
