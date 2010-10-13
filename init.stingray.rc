@@ -90,6 +90,12 @@ on boot
     chown radio radio /dev/ttyHS0
     chmod 640 /dev/ttyHS0
 
+# Modem Control
+    chown radio radio /sys/class/radio/mdm6600/command
+    chmod 220 /sys/class/radio/mdm6600/command
+    chown radio radio /sys/bus/usb/devices/usb2/power/control
+    chmod 660 /sys/bus/usb/devices/usb2/power/control
+
 # Power Management Settings
     #write /sys/devices/platform/ohci.0/usb2/2-3/power/level auto
     write /sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq 312000
