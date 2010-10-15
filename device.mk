@@ -40,7 +40,9 @@ PRODUCT_COPY_FILES += \
 
 PRODUCT_COPY_FILES += \
         device/moto/stingray/vold.fstab:system/etc/vold.fstab \
-        device/moto/stingray/qtouch-touchscreen.idc:system/usr/idc/qtouch-touchscreen.idc
+        device/moto/stingray/qtouch-touchscreen.idc:system/usr/idc/qtouch-touchscreen.idc \
+        device/moto/stingray/cpcap-key.kl:system/usr/keylayout/cpcap-key.kl \
+        device/moto/stingray/stingray-keypad.kl:system/usr/keylayout/stingray-keypad.kl
 
 PRODUCT_PACKAGES := \
     sensors.stingray \
@@ -54,3 +56,6 @@ PRODUCT_TAGS += dalvik.gc.type-precise
 # media config xml file
 PRODUCT_COPY_FILES += \
     device/moto/stingray/media_profiles.xml:system/etc/media_profiles.xml
+
+# inherit support for external keyboards
+$(call inherit-product, frameworks/base/data/keyboards/keyboards.mk)
