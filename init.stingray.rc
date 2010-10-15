@@ -132,10 +132,9 @@ service dhcpcd /system/bin/dhcpcd -ABKL
     oneshot
 
 # bugreport is triggered by the VOLUME-DOWN and VOLUME-UP keys.
-# Also play some sound since there is no vibrator feedback on this device.
-service bugreport /system/bin/dumpstate -d \
-        -o /sdcard/bugreports/bugreport \
-        -b /system/media/audio/ui/Dock.ogg -e /system/media/audio/ui/Undock.ogg
+# bugtogo.sh tool will invoke bugreport and propt email composer
+# if not in user build.
+service bugreport /system/bin/bugtogo.sh
     disabled
     oneshot
     keycodes 115 114
