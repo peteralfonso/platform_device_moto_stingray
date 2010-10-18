@@ -19,9 +19,35 @@
 #include <utils/Log.h>
 #include "AudioHardware.h"
 #include "AudioPostProcessor.h"
-
+#include <sys/stat.h>
 // hardware specific functions
 extern uint16_t HC_CTO_AUDIO_MM_PARAMETER_TABLE[];
+
+///////////////////////////////////
+// Some logging #defines
+#define ECNS_LOG_ENABLE_OFFSET 0 // First word of the configuration buffer
+#define ECNS_LOGGING_BITS 0x3F00 // bits 8-13 are log points 0-5
+#define BLACK_BOX_LOG_MASK 0xFF00
+#define BLACK_BOX_LOG_VAL 0xC000
+
+// ID's for Uplink logs
+#define MOT_LOG_RAW_AS1    0x9000
+#define MOT_LOG_RAW_AS1_DL 0xA000
+#define MOT_LOG_AS1_iENCS  0x8800
+#define MOT_LOG_iENCS_AS2  0x8400
+#define MOT_LOG_AS2_ANM    0x8200
+#define MOT_LOG_ANM_ENC    0x8100
+
+// ID's for downlink logs
+#define MOT_LOG_DEC_ANM    0x0800
+#define MOT_LOG_ANM_AS     0x0400
+#define MOT_LOG_AS_iENCS   0x0200
+#define MOT_LOG_iENCS_RAW  0x0100
+
+#define MOT_LOG_DELIMITER_START  0xFEED
+#define MOT_LOG_DELIMITER_END    0xF00D
+
+#define ECNSLOGPATH "/data/ecns"
 
 #ifndef ARRAY_SIZE
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof(a[0]))
@@ -257,9 +283,11 @@ void AudioPostProcessor::stopEcns (void)
     }
     mEcnsScratchBufSize = 0;
     mEcnsOutFd = -1;
-    if(mLogFp) {
-       fclose(mLogFp);
-       mLogFp = 0;
+
+    for(int i=0;i<5;i++) {
+        if(mLogFp[i])
+            fclose(mLogFp[i]);
+        mLogFp[i]=0;
     }
     // In case write() is blocked, set it free.
     pthread_cond_signal(&mEcnsBufCond);
@@ -296,6 +324,7 @@ int AudioPostProcessor::applyUplinkEcns(void * buffer, int bytes, int rate)
     int16_t *dl_buf;  // The downlink speech may not be contiguous, so copy it here.
     int16_t *ul_buf = (int16_t *)buffer;
     int dl_buf_bytes=0;
+    static int throwaway;
 
     if (!mEcnsEnabled)
         return 0;
@@ -306,13 +335,18 @@ int AudioPostProcessor::applyUplinkEcns(void * buffer, int bytes, int rate)
         return -1;
 
     //LOGD("%s %d bytes at %d Hz",__FUNCTION__, bytes, rate);
-    if (mEcnsEnabled && !mEcnsRunning)
+    if (mEcnsEnabled && !mEcnsRunning) {
         initEcns(rate, bytes);
+        // Throw away next handful of write's to starve out TX buffer.
+        throwaway = 30;
+    }
 
     // In case the rate switched..
     if (mEcnsEnabled && rate != mEcnsRate) {
         stopEcns();
         initEcns(rate, bytes);
+        // Throw away next handful of write's to starve out TX buffer.
+        throwaway = 30;
     }
 
     if(!mEcnsRunning) {
@@ -320,12 +354,12 @@ int AudioPostProcessor::applyUplinkEcns(void * buffer, int bytes, int rate)
         return -1;
     }
 
-    for(int i=0; mEcnsOutBuf==0 && i<2; i++) {
+    for(int i=0; mEcnsOutBuf==0 && i<1; i++) {
         // This situation is unlikely, but go ahead and do our best.
         LOGD("Signal write thread - need data.");
         pthread_cond_signal(&mEcnsBufCond);
-        LOGD("Stalling read thread for %d usec",10000);
-        usleep(10000);
+        LOGD("Stalling read thread for %d usec",5000);
+        usleep(5000);
     }
     //LOGD("ecns init done. dl_buf %p, ScratchBuf %p, ScratchBufSize %d, OutBuf %p, OutBufSize %d",
     //      dl_buf, mEcnsScratchBuf, mEcnsScratchBufSize, mEcnsOutBuf, mEcnsOutBufSize);
@@ -397,39 +431,50 @@ int AudioPostProcessor::applyUplinkEcns(void * buffer, int bytes, int rate)
                bytes-dl_buf_bytes);
     }
 
+    // Save the logging output of the ECNS module
+    if((mAudioProfile[ECNS_LOG_ENABLE_OFFSET] & BLACK_BOX_LOG_MASK) == BLACK_BOX_LOG_VAL) {
+       // All bits on is an "illegal setting", let's borrow that for black box logging.
+       if(!mLogFp[0] && !mLogFp[1] && !mLogFp[2] && !mLogFp[3]) {
+          LOGE("EC/NS AUDIO LOGGER CONFIGURATION: Using Black-box logging");
+          mkdir("/data/ecns", 00770);
+          mLogFp[0] = fopen("/data/ecns/ecns_uplink_in.pcm", "w");
+          mLogFp[1] = fopen("/data/ecns/ecns_downlink_in.pcm", "w");
+          mLogFp[2] = fopen("/data/ecns/ecns_uplink_out.pcm", "w");
+          mLogFp[3] = fopen("/data/ecns/ecns_downlink_out.pcm", "w");
+       }
+       if(!mLogFp[0] && !mLogFp[1] && !mLogFp[2] && !mLogFp[3]) {
+          LOGE("Error opening some files.");
+          for(int i=0;i<5;i++) {
+              if(mLogFp[i])
+                  fclose(mLogFp[i]);
+              mLogFp[i]=0;
+          }
+       }
+       // Capture the uplink input, downlink input here.
+       if(mLogFp[0] && mLogFp[1]) {
+          fwrite(ul_buf, bytes, 1, mLogFp[0]);
+          fwrite(dl_buf, bytes, 1, mLogFp[1]);
+       }
+    }
     // Do Echo Cancellation
     API_MOT_DOWNLINK(&mEcnsCtrl, &mMemBlocks, (int16*)dl_buf, (int16*)ul_buf, &(ul_gbuff2[0]));
     API_MOT_UPLINK(&mEcnsCtrl, &mMemBlocks, (int16*)dl_buf, (int16*)ul_buf, &(ul_gbuff2[0]));
 
-    // Save the logging output of the ECNS module
-    #define ECNS_LOG_ENABLE_OFFSET 0 // First word
-    #define ECNS_LOGGING_BITS 0x3F00 // bits 8-13 are log points 0-5
-    if(mAudioProfile[ECNS_LOG_ENABLE_OFFSET] & ECNS_LOGGING_BITS) {
-        int numPoints = 0;
-        static int logsize = 0;
-        if (!mLogFp) {
-           LOGE("EC/NS AUDIO LOGGER CONFIGURATION:");
-           LOGE("file /data/cto_ecns_log.pcm, log enable %04X",
-               mAudioProfile[ECNS_LOG_ENABLE_OFFSET]);
-           mLogFp = fopen("/data/cto_ecns_log.pcm", "w");
-           // Bytes to log is (#log points) x (8 + #bytes per frame)
-           for (uint16_t i=1;i>0;i<<=1) {
-               if (i&ECNS_LOGGING_BITS&mAudioProfile[ECNS_LOG_ENABLE_OFFSET]) {
-                  numPoints++;
-               }
-           }
-           LOGE("Number of log points is %d.",numPoints);
-           logsize = numPoints * (8 + bytes);
-        }
-        if(mLogFp) {
-           LOGE("Writing %d bytes to /data/cto_ecns_log.pcm",logsize);
-           fwrite(mMotDatalog, logsize, 1, mLogFp);
-        } else {
-           LOGE("EC/NS logging enabled, but failing to open.");
-        }
+    if((mAudioProfile[ECNS_LOG_ENABLE_OFFSET] & BLACK_BOX_LOG_MASK) == BLACK_BOX_LOG_VAL) {
+    // Black box logging.  Capture the uplink output, downlink output.
+       if(mLogFp[2] && mLogFp[3]) {
+           fwrite(ul_buf, bytes, 1, mLogFp[2]);
+           fwrite(dl_buf, bytes, 1, mLogFp[3]);
+       }
     }
+
+    // Do the CTO SuperAPI internal logging.  It can log various steps of uplink and downlink speech.
+    ecnsLogToFile(bytes);
+
     // Playback the echo-cancelled speech to driver.
     // Include zero padding.  Our echo canceller needs a consistent path.
+    // TODO: Don't playback here, move it to the write() thread.  Also, make sure
+    // the output is really stereo before upconverting (i.e. SCO Audio)
     if(dl_buf_bytes) {
         // Convert up to stereo, in place.
         for (int i = dl_buf_bytes/2-1; i >= 0; i--) {
@@ -438,13 +483,62 @@ int AudioPostProcessor::applyUplinkEcns(void * buffer, int bytes, int rate)
         }
         dl_buf_bytes *= 2;
     }
-    if(mEcnsOutFd != -1) {
+    if(mEcnsOutFd != -1 && !throwaway) {
         // Ignore write() retval, nothing we can do.
         ::write(mEcnsOutFd, dl_buf, bytes*2); // Stereo
+        // Why not write the first buffer?  Trying to minimize buffering in kernel, let existing data flush out.
         // To skip zero padding, do ::write(mEcnsOutFd, dl_buf, dl_buf_bytes) instead.
     }
+
+    if (throwaway)
+        throwaway--;
+
     free(dl_buf);
     return bytes;
+}
+
+void AudioPostProcessor::ecnsLogToFile(int bytes)
+{
+    static int numPoints = 0;
+    uint16_t *logp;
+
+    if(mAudioProfile[ECNS_LOG_ENABLE_OFFSET] & ECNS_LOGGING_BITS) {
+        if (!mLogFp[0]) {
+           numPoints = 0;
+           LOGE("EC/NS AUDIO LOGGER CONFIGURATION:");
+           LOGE("log enable %04X",
+               mAudioProfile[ECNS_LOG_ENABLE_OFFSET]);
+           mkdir(ECNSLOGPATH, 00770);
+           for (uint16_t i=1;i>0;i<<=1) {
+               if (i&ECNS_LOGGING_BITS&mAudioProfile[ECNS_LOG_ENABLE_OFFSET]) {
+                  numPoints++;
+               }
+           }
+           LOGE("Number of log points is %d.",numPoints);
+           logp = mMotDatalog;
+           for(int i=0;i<numPoints;i++) {
+               char fname[80];
+               fname[0]='\0';
+               // Log format: FEED TAG1 LEN1 F00D [bytes]
+               LOGD("feed? %04X",logp[0]);
+               sprintf(fname, ECNSLOGPATH"/%cl-0x%04X.pcm",
+                   mAudioProfile[ECNS_LOG_ENABLE_OFFSET] & 0x8000?'u':'d',
+                   logp[1]);
+               LOGE("fname[%d] = %s",i,fname);
+               LOGD("len = %d", logp[2]); // Ignored
+               LOGD("food? %04X", logp[3]);
+               mLogFp[i]=fopen((const char *)fname, "w");
+               logp += 4 + bytes/2;
+           }
+        }
+        for(int i=0; i<numPoints; i++) {
+            if(mLogFp[i]) {
+                fwrite(&mMotDatalog[4+i*(bytes/2+4)], bytes, 1, mLogFp[i]);
+            } else {
+                LOGE("EC/NS logging enabled, but file not open.");
+            }
+        }
+    }
 }
 
 } //namespace android

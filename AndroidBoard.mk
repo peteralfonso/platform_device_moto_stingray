@@ -1,12 +1,6 @@
 LOCAL_PATH := $(call my-dir)
 include $(CLEAR_VARS)
 
-file := $(TARGET_OUT_KEYLAYOUT)/cpcap-key.kl
-ALL_PREBUILT += $(file)
-$(file) : $(LOCAL_PATH)/cpcap-key.kl | $(ACP)
-	$(transform-prebuilt-to-target)
-
-include $(CLEAR_VARS)
 LOCAL_SRC_FILES := stingray-keypad.kcm
 include $(BUILD_KEY_CHAR_MAP)
 
