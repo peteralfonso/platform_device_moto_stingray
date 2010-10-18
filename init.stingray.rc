@@ -117,10 +117,6 @@ on boot
     # HACK prevent LP0
     write /d/suspend_mode lp1
 
-service nvrm_daemon /system/bin/nvrm_daemon
-    user root
-    onrestart restart servicemanager
-
 # Ecompass daemon
 service akmd2 /system/bin/akmd2
     user compass
