@@ -169,7 +169,7 @@ status_t AudioHardware::setMode(int mode)
     return AudioHardwareBase::setMode(mode);
 }
 
-status_t AudioHardware::doStandby(bool output, bool enable)
+status_t AudioHardware::doStandby(int stop_fd, bool output, bool enable)
 {
     status_t status = NO_ERROR;
     struct cpcap_audio_stream standby;
@@ -184,11 +184,25 @@ status_t AudioHardware::doStandby(bool output, bool enable)
         standby.id = CPCAP_AUDIO_OUT_STANDBY;
         standby.on = enable;
 
+        if (enable) {
+            /* Flush the queued playback data.  Putting the output in standby
+             * will cause CPCAP to not drive the i2s interface, and write()
+             * will block until playback is resumed.
+             */
+            LOGV("%s: flush playback", __FUNCTION__);
+            if (::ioctl(stop_fd, TEGRA_AUDIO_OUT_FLUSH) < 0) {
+                LOGE("could not flush playback: %s\n",
+                     strerror(errno));
+            }
+            LOGV("%s: playback flushed", __FUNCTION__);
+        }
+
         if (::ioctl(mCpcapCtlFd, CPCAP_AUDIO_OUT_SET_OUTPUT, &standby) < 0) {
             LOGE("could not turn off current output device: %s\n",
                  strerror(errno));
             status = errno;
         }
+
         ::ioctl(mCpcapCtlFd, CPCAP_AUDIO_OUT_GET_OUTPUT, &mCurOutDevice);
         LOGV("%s: after standby %s, output is %s", __FUNCTION__,
              enable ? "enable" : "disable",
@@ -196,6 +210,18 @@ status_t AudioHardware::doStandby(bool output, bool enable)
     } else {
         standby.id = CPCAP_AUDIO_IN_STANDBY;
         standby.on = enable;
+
+        if (enable) {
+            /* Stop recording, if ongoing.  Muting the microphone will cause
+             * CPCAP to not send data through the i2s interface, and read()
+             * will block until recording is resumed.
+             */
+            LOGV("%s: stop recording", __FUNCTION__);
+            if (::ioctl(stop_fd, TEGRA_AUDIO_IN_STOP) < 0) {
+                LOGE("could not stop recording: %s\n",
+                     strerror(errno));
+            }
+        }
 
         if (::ioctl(mCpcapCtlFd, CPCAP_AUDIO_IN_SET_INPUT, &standby) < 0) {
             LOGE("could not turn off current input device: %s\n",
@@ -752,7 +778,7 @@ status_t AudioHardware::AudioStreamOutTegra::online()
         return NO_ERROR;
     }
 
-    return mHardware->doStandby(true, false); // output, online
+    return mHardware->doStandby(mFdCtl, true, false); // output, online
 }
 
 status_t AudioHardware::AudioStreamOutTegra::standby()
@@ -763,7 +789,7 @@ status_t AudioHardware::AudioStreamOutTegra::standby()
         return NO_ERROR;
     }
 
-    status = mHardware->doStandby(true, true); // output, standby
+    status = mHardware->doStandby(mFdCtl, true, true); // output, standby
     return status;
 }
 
@@ -973,16 +999,7 @@ status_t AudioHardware::AudioStreamInTegra::standby()
 
     mHardware->doRouting();
 
-    status_t rc = mHardware->doStandby(false, true); // input, standby
-    if (!rc) {
-        /* Stop recording, if ongoing.  Muting the microphone will cause CPCAP
-         * to not send data through the i2s interface, and read() will block
-         * until recording is resumed.
-         */
-        LOGV("%s: stop recording", __FUNCTION__);
-        ::ioctl(mFd, TEGRA_AUDIO_IN_STOP);
-    }
-    return rc;
+    return mHardware->doStandby(mFdCtl, false, true); // input, standby
 }
 
 status_t AudioHardware::AudioStreamInTegra::online()
@@ -1038,7 +1055,7 @@ status_t AudioHardware::AudioStreamInTegra::online()
     }
 
     mState = AUDIO_INPUT_OPENED;
-    return mHardware->doStandby(false, false); // input, online
+    return mHardware->doStandby(mFdCtl, false, false); // input, online
 }
 
 status_t AudioHardware::AudioStreamInTegra::dump(int fd, const Vector<String16>& args)
