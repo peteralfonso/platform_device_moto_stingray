@@ -19,6 +19,8 @@
 #include "recovery_ui.h"
 #include "common.h"
 
+int bp_master_clear(void);
+
 char* MENU_HEADERS[] = { "Use volume keys to highlight; power button to select.",
                          "",
                          NULL };
@@ -80,5 +82,11 @@ int device_perform_action(int which) {
 }
 
 int device_wipe_data() {
+    ui_print("Performing BP clear...\n");
+    int result = bp_master_clear();
+    if(result == 0)
+        ui_print("BP clear complete successfully.\n");
+    else
+        ui_print("BP clear failed.\n");
     return 0;
 }
