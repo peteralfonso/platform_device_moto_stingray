@@ -39,11 +39,12 @@ namespace android {
 const uint32_t AudioHardware::inputSamplingRates[] = {
     8000, 11025, 12000, 16000, 22050, 32000, 44100, 48000
 };
+
 // ----------------------------------------------------------------------------
 
 AudioHardware::AudioHardware() :
     mInit(false), mMicMute(true), mBluetoothNrec(true), mBluetoothId(0),
-    mOutput(0), mCpcapCtlFd(-1)
+    mOutput(0), mCpcapCtlFd(-1), mMasterVol(1.0), mVoiceVol(1.0)
 {
     LOGV("AudioHardware constructor");
 
@@ -64,6 +65,8 @@ AudioHardware::AudioHardware() :
     mAudioPP.setAudioDev(&mCurOutDevice);
 #endif
 
+    readHwGainFile();
+
     mInit = true;
 }
 
@@ -76,6 +79,37 @@ AudioHardware::~AudioHardware()
     mInputs.clear();
     closeOutputStream((AudioStreamOut*)mOutput);
     ::close(mCpcapCtlFd);
+}
+
+void AudioHardware::readHwGainFile()
+{
+    int fd;
+    int rc=0;
+    int i;
+    uint32_t format, version, barker;
+    fd = open("/system/etc/cpcap_gain.bin", O_RDONLY);
+    if (fd>=0) {
+        ::read(fd, &format, sizeof(uint32_t));
+        ::read(fd, &version, sizeof(uint32_t));
+        ::read(fd, &barker, sizeof(uint32_t));
+        rc = ::read(fd, mCpcapGain, sizeof(mCpcapGain));
+        LOGD("Read gain file, format %X version %X", format, version);
+        ::close(fd);
+    }
+    if (rc != sizeof(mCpcapGain) || format != 0x30303031) {
+        int gain;
+        LOGE("CPCAP gain file not valid. Using defaults.");
+        for (int i=0; i<AUDIO_HW_GAIN_NUM_DIRECTIONS; i++) {
+            if (i==AUDIO_HW_GAIN_SPKR_GAIN)
+                gain = 11;
+            else
+                gain = 31;
+            for (int j=0; j<AUDIO_HW_GAIN_NUM_USECASES; j++)
+                for (int k=0; k<AUDIO_HW_GAIN_NUM_PATHS; k++)
+                    mCpcapGain[i][j][k]=gain;
+        }
+    }
+    return;
 }
 
 status_t AudioHardware::initCheck()
@@ -324,40 +358,96 @@ size_t AudioHardware::getInputBufferSize(uint32_t sampleRate, int format, int ch
     return 2048*channelCount;
 }
 
+//setVoiceVolume is only useful for setting sidetone gains with a baseband
+//controlling volume.  Don't adjust hardware volume with this API.
+//
+//(On Stingray, don't use mVoiceVol for anything.)
 status_t AudioHardware::setVoiceVolume(float v)
 {
-#if 0
-    if (v < 0.0) {
-        LOGW("setVoiceVolume(%f) under 0.0, assuming 0.0\n", v);
+    if (v < 0.0)
         v = 0.0;
-    } else if (v > 1.0) {
-        LOGW("setVoiceVolume(%f) over 1.0, assuming 1.0\n", v);
+    else if (v > 1.0)
         v = 1.0;
-    }
 
-    int vol = lrint(v * 15.0);
-    LOGD("setVoiceVolume(%f)\n", v);
-    LOGI("Setting in-call volume to %d (available range is 0 to 15)\n", vol);
+    LOGI("Setting unused in-call vol to %f",v);
+    mVoiceVol = v;
 
-    Mutex::Autolock lock(mLock);
-    if (::ioctl(mCpcapCtlFd, CPCAP_AUDIO_OUT_SET_VOLUME, vol) < 0)
-        LOGE("could not set volume: %s\n", strerror(errno));
-#endif
     return NO_ERROR;
 }
 
 status_t AudioHardware::setMasterVolume(float v)
 {
+    if (v < 0.0)
+        v = 0.0;
+    else if (v > 1.0)
+        v = 1.0;
+
+    LOGV("Set master vol to %f.\n", v);
+    mMasterVol = v;
     Mutex::Autolock lock(mLock);
-    // CPCAP volumes : (vol * 3) - 33 == dB of gain. (table 7-31 CPCAP DTS version 1.5)
-    // 0 dB is correct for VOL_DAC for loudspeaker.
-    int vol = ceil(v * 11.0);
-    LOGI("Set master volume to %d.\n", vol);
-
-    if (::ioctl(mCpcapCtlFd, CPCAP_AUDIO_OUT_SET_VOLUME, vol) < 0)
-        LOGE("could not set volume: %s\n", strerror(errno));
-
+    if(mMode == AudioSystem::MODE_IN_CALL)
+        setVolume_l(v, AUDIO_HW_GAIN_USECASE_VOICE);
+    else
+        setVolume_l(v, AUDIO_HW_GAIN_USECASE_MM);
     return NO_ERROR;
+}
+
+// Call with mLock held.
+status_t AudioHardware::setVolume_l(float v, int usecase)
+{
+    status_t ret;
+    int spkr = getGain(AUDIO_HW_GAIN_SPKR_GAIN, usecase);
+    int mic = getGain(AUDIO_HW_GAIN_MIC_GAIN, usecase);
+
+    if(spkr==0) {
+       // no device to set volume on.  Ignore request.
+       return -1;
+    }
+
+    spkr = ceil(v * spkr);
+    LOGD("Set tx volume to %d, rx to %d.\n", spkr, mic);
+
+    ret = ::ioctl(mCpcapCtlFd, CPCAP_AUDIO_OUT_SET_VOLUME, spkr);
+    if (ret < 0)
+        LOGE("could not set spkr volume: %s\n", strerror(errno));
+    else {
+        ret = ::ioctl(mCpcapCtlFd, CPCAP_AUDIO_IN_SET_VOLUME, mic);
+        if (ret < 0)
+            LOGE("could not set mic volume: %s\n", strerror(errno));
+    }
+
+    return ret;
+}
+
+uint8_t AudioHardware::getGain(int direction, int usecase)
+{
+    int path;
+    AudioStreamInTegra *input = getActiveInput_l();
+    uint32_t inDev = (input == NULL) ? 0 : input->devices();
+    if(!mOutput) {
+       LOGE("No output device.");
+       return 0;
+    }
+    uint32_t outDev = mOutput->devices();
+
+// In case of an actual phone, with an actual earpiece, uncomment.
+//    if (outDev & AudioSystem::DEVICE_OUT_EARPIECE)
+//        path = AUDIO_HW_GAIN_EARPIECE;
+//    else
+    if (outDev & AudioSystem::DEVICE_OUT_WIRED_HEADPHONE)
+        path = AUDIO_HW_GAIN_HEADSET_NO_MIC;
+    else if (outDev & AudioSystem::DEVICE_OUT_WIRED_HEADSET)
+        path = AUDIO_HW_GAIN_HEADSET_W_MIC;
+// TODO: support dock.
+//    else if (outDev & AudioSystem::DEVICE_OUT_ANLG_DOCK_HEADSET)
+//        path = AUDIO_HW_GAIN_EMU_DEVICE;
+    else
+       path = AUDIO_HW_GAIN_SPEAKERPHONE;
+
+    LOGV("Picked gain[%d][%d][%d] which is %d.",direction, usecase, path,
+          mCpcapGain[direction][usecase][path]);
+
+    return mCpcapGain[direction][usecase][path];
 }
 
 int AudioHardware::getActiveInputRate()
@@ -442,12 +532,12 @@ status_t AudioHardware::doRouting()
              mCurOutDevice.id, mCurOutDevice.on,
              strerror(errno));
 
+    //TODO: EC/NS decision that doesn't isn't so presumptuous.
+    bool ecnsEnabled = mCurOutDevice.on && mCurInDevice.on && // mMode == AudioSystem::MODE_IN_CALL &&
+                       (getActiveInputRate() == 8000 || getActiveInputRate() == 16000);
+
 #ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
     mAudioPP.setAudioDev(&mCurOutDevice);
-
-    //TODO: EC/NS decision that doesn't isn't so presumptuous.
-    bool ecnsEnabled = mCurOutDevice.on && mCurInDevice.on &&
-                       (getActiveInputRate() == 8000 || getActiveInputRate() == 16000);
     mAudioPP.enableEcns(ecnsEnabled);
 
     // Check input/output rates for HW.
@@ -459,18 +549,18 @@ status_t AudioHardware::doRouting()
     }
     else {
         mHwInRate = getActiveInputRate();
-        if(mHwInRate == 0)
+        if (mHwInRate == 0)
             mHwInRate = 44100;
         mHwOutRate = 44100;
-        LOGD("No EC/NS, set input rate %d, output %d.", mHwInRate, mHwOutRate);
+        LOGV("No EC/NS, set input rate %d, output %d.", mHwInRate, mHwOutRate);
     }
     if (mHwInRate != oldInRate) {
-        LOGD("Minor TODO: Flush input if active.");
+        LOGV("Minor TODO: Flush input if active.");
         if (::ioctl(mCpcapCtlFd, CPCAP_AUDIO_IN_SET_RATE,
                   mHwInRate) < 0)
             LOGE("could not set input rate(%d): %s\n",
                   mHwInRate, strerror(errno));
-        if(::ioctl(mCpcapCtlFd, CPCAP_AUDIO_IN_GET_RATE, &mHwInRate))
+        if (::ioctl(mCpcapCtlFd, CPCAP_AUDIO_IN_GET_RATE, &mHwInRate))
             LOGE("CPCAP driver error reading rates.");
     }
     if (mHwOutRate != oldOutRate) {
@@ -479,12 +569,19 @@ status_t AudioHardware::doRouting()
             LOGE("could not set output rate(%d): %s\n",
                   mHwOutRate, strerror(errno));
         // Clear old data (wrong rate) from I2S driver.
-        if(mOutput)
+        if (mOutput)
            mOutput->flush();
-        if(::ioctl(mCpcapCtlFd, CPCAP_AUDIO_OUT_GET_RATE, &mHwOutRate))
+        if (::ioctl(mCpcapCtlFd, CPCAP_AUDIO_OUT_GET_RATE, &mHwOutRate))
             LOGE("CPCAP driver error reading rates.");
     }
 #endif
+
+    // Since HW path may have changed, set the hardware gains.
+    if (mMode == AudioSystem::MODE_IN_CALL)
+        setVolume_l(mMasterVol, AUDIO_HW_GAIN_USECASE_VOICE);
+    else
+        setVolume_l(mMasterVol, AUDIO_HW_GAIN_USECASE_MM);
+
     return NO_ERROR;
 }
 
@@ -618,7 +715,7 @@ void AudioHardware::AudioStreamOutTegra::srcInit(int inRate, int outRate)
     mSrcInitted = false;
     mSrcStaticData.scratch_buffer = mSrcScratchMem;
 
-    if(inRate == 44100) {
+    if (inRate == 44100) {
         srcMode = (
             outRate == 8000  ? SRC_44_08 :
             outRate == 11025 ? SRC_44_11 :
@@ -631,7 +728,7 @@ void AudioHardware::AudioStreamOutTegra::srcInit(int inRate, int outRate)
         );
     }
 
-    if(srcMode == MODE_END) {
+    if (srcMode == MODE_END) {
         LOGE("Failed to initialize sample rate converter - bad rate");
         return;
     }
@@ -673,14 +770,14 @@ ssize_t AudioHardware::AudioStreamOutTegra::write(const void* buffer, size_t byt
     // Check if sample rate conversion or ECNS are required.
     // Caution: Upconversion (from 44.1 to 48) would require a new output buffer larger than the
     // original one.
-    if(mHardware->mHwOutRate != (int)sampleRate()) {
+    if (mHardware->mHwOutRate != (int)sampleRate()) {
         if (!mSrcInitted ||
              mSrcInRate != (int)sampleRate() ||
              mSrcOutRate != mHardware->mHwOutRate) {
             LOGW("%s: downconvert started from %d to %d",__FUNCTION__,
                  sampleRate(), mHardware->mHwOutRate);
             srcInit(sampleRate(), mHardware->mHwOutRate);
-            if(!mSrcInitted) {
+            if (!mSrcInitted) {
                 status = -1;
                 goto error;
             }
@@ -689,7 +786,7 @@ ssize_t AudioHardware::AudioStreamOutTegra::write(const void* buffer, size_t byt
         mSrcInitted = false;
     }
 
-    if(mHardware->mAudioPP.isEcnsEnabled() || mSrcInitted)
+    if (mHardware->mAudioPP.isEcnsEnabled() || mSrcInitted)
     {
         // cut audio down to Mono for SRC or ECNS
         if (channels() == AudioSystem::CHANNEL_OUT_STEREO)
@@ -703,7 +800,7 @@ ssize_t AudioHardware::AudioStreamOutTegra::write(const void* buffer, size_t byt
         }
     }
 
-    if(mSrcInitted) {
+    if (mSrcInitted) {
         // Apply the sample rate conversion.
         mSrcIoData.input_ptrL = (SRC_INT16_T *) (buffer);
         mSrcIoData.input_count = outsize / sizeof(SRC_INT16_T);
@@ -715,7 +812,7 @@ ssize_t AudioHardware::AudioStreamOutTegra::write(const void* buffer, size_t byt
         //     outsize, sampleRate(), mSrcIoData.output_count*2, mHardware->mHwOutRate);
         outsize = mSrcIoData.output_count*2;
     }
-    if(mHardware->mAudioPP.isEcnsEnabled()) {
+    if (mHardware->mAudioPP.isEcnsEnabled()) {
         // EC/NS is a blocking interface, to synchronise with read.
         // It also consumes data when EC/NS is running.
         // It expects MONO data.
@@ -723,7 +820,7 @@ ssize_t AudioHardware::AudioStreamOutTegra::write(const void* buffer, size_t byt
         // driver ourselves.
         written = mHardware->mAudioPP.writeDownlinkEcns(mFd,(void *)buffer, outsize);
     }
-    if(mHardware->mAudioPP.isEcnsEnabled() || mSrcInitted) {
+    if (mHardware->mAudioPP.isEcnsEnabled() || mSrcInitted) {
         // Move audio back up to Stereo, if the EC/NS wasn't in fact running and we're
         // writing to a stereo device.
         if (channels() == AudioSystem::CHANNEL_OUT_STEREO &&
@@ -739,7 +836,7 @@ ssize_t AudioHardware::AudioStreamOutTegra::write(const void* buffer, size_t byt
     }
 #endif
 
-    if(written != (ssize_t)outsize) {
+    if (written != (ssize_t)outsize) {
         written = ::write(mFd, buffer, outsize);
     }
     if (written < 0)
@@ -762,6 +859,7 @@ error:
 
 void AudioHardware::AudioStreamOutTegra::flush()
 {
+    // TODO: Reimplement using TEGRA_AUDIO_OUT_FLUSH
     // Prevent someone from writing the fd while we do this operation.
     Mutex::Autolock lock(mFdLock);
 #ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
@@ -925,7 +1023,7 @@ status_t AudioHardware::AudioStreamInTegra::set(
     mSampleRate = *pRate;
     // 20 millisecond buffers default
     mBufferSize = mSampleRate * sizeof(int16_t) * AudioSystem::popCount(mChannels) / 50;
-    if(mBufferSize & 0x3) {
+    if (mBufferSize & 0x3) {
        // Not divisible by 4.
        mBufferSize +=4;
        mBufferSize &= ~0x3;
@@ -964,7 +1062,7 @@ ssize_t AudioHardware::AudioStreamInTegra::read(void* buffer, ssize_t bytes)
     }
 
     ret = online();
-    if(ret != NO_ERROR) {
+    if (ret != NO_ERROR) {
        LOGE("%s: Problem switching to online.",__FUNCTION__);
        return -1;
     }

@@ -45,6 +45,31 @@ namespace android {
 #define AUDIO_HW_IN_BUFFERSIZE (4096)               // Default audio input buffer size
 #define AUDIO_HW_IN_FORMAT (AudioSystem::PCM_16_BIT)  // Default audio input sample format
 
+enum {
+    AUDIO_HW_GAIN_SPKR_GAIN = 0,
+    AUDIO_HW_GAIN_MIC_GAIN,
+    AUDIO_HW_GAIN_NUM_DIRECTIONS
+};
+enum {
+    AUDIO_HW_GAIN_USECASE_VOICE= 0,
+    AUDIO_HW_GAIN_USECASE_MM,
+    AUDIO_HW_GAIN_NUM_USECASES
+};
+enum {
+    AUDIO_HW_GAIN_EARPIECE = 0,
+    AUDIO_HW_GAIN_SPEAKERPHONE,
+    AUDIO_HW_GAIN_HEADSET_W_MIC,
+    AUDIO_HW_GAIN_MONO_HEADSET,
+    AUDIO_HW_GAIN_HEADSET_NO_MIC,
+    AUDIO_HW_GAIN_EMU_DEVICE,
+    AUDIO_HW_GAIN_RSVD1,
+    AUDIO_HW_GAIN_RSVD2,
+    AUDIO_HW_GAIN_RSVD3,
+    AUDIO_HW_GAIN_RSVD4,
+    AUDIO_HW_GAIN_RSVD5,
+    AUDIO_HW_GAIN_NUM_PATHS
+};
+
 class AudioHardware : public  AudioHardwareBase
 {
     class AudioStreamOutTegra;
@@ -99,6 +124,9 @@ private:
     uint32_t    getInputSampleRate(uint32_t sampleRate);
     status_t    doStandby(int stop_fd, bool output, bool enable);
     status_t    doRouting();
+    status_t    setVolume_l(float v, int usecase);
+    uint8_t     getGain(int direction, int usecase);
+    void        readHwGainFile();
 
     AudioStreamInTegra*   getActiveInput_l();
 
@@ -211,6 +239,11 @@ private:
             int mCpcapCtlFd;
             int mHwOutRate;
             int mHwInRate;
+            float mMasterVol;
+            float mVoiceVol;
+            uint8_t mCpcapGain[AUDIO_HW_GAIN_NUM_DIRECTIONS]
+                              [AUDIO_HW_GAIN_NUM_USECASES]
+                              [AUDIO_HW_GAIN_NUM_PATHS];
 #ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
             AudioPostProcessor mAudioPP;
 #endif
