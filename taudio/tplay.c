@@ -19,7 +19,6 @@ main(int argc, char *argv[])
 {
     int ifd, ofd, ofd_c;
     int nr, nw;
-    struct tegra_audio_out_preload preload;
     struct tegra_audio_buf_config config;
     char *buffer;
     int len;
@@ -73,7 +72,7 @@ main(int argc, char *argv[])
     } while (1);
 
     printf("played with %d late, %d underflow errors\n",
-           errors.late_dma, errors.full_empty);
+           errors_tot.late_dma, errors_tot.full_empty);
     return 0;
 }
 

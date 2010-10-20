@@ -110,6 +110,8 @@ on boot
     write /sys/devices/system/cpu/cpu1/cpufreq/ondemand/sampling_rate 30000
     # Wakelock debug
     write /sys/module/wakelock/parameters/debug_mask 7
+    # No need to continuously scan w1 bus
+    write /sys/devices/w1\ bus\ master/w1_master_search 1
 
     # HACK prevent LP0
     write /d/suspend_mode lp1

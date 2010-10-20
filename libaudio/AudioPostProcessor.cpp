@@ -53,7 +53,7 @@ extern uint16_t HC_CTO_AUDIO_MM_PARAMETER_TABLE[];
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof(a[0]))
 #endif
 
-// Define the mode offsets in the "VOIPgainfile.bin"
+// Define the mode offsets in the VOIP parameter file
 enum {
    ECNS_MODE_HANDSET_8K = 0, // Not on Everest
    ECNS_MODE_HEADSET_8K,
@@ -238,11 +238,11 @@ void AudioPostProcessor::initEcns(int rate, int bytes)
     mMemBlocks.mot_datalog = mMotDatalog;
     mMemBlocks.scratchMemory = mScratchMemory;
 
-    FILE * fp = fopen("/system/etc/VOIPgainfile.bin", "r");
+    FILE * fp = fopen("/system/etc/voip_aud_params.bin", "r");
     if(fp) {
         fseek(fp, AUDIO_PROFILE_PARAMETER_BLOCK_WORD16_SIZE*2*mode, SEEK_SET);
         if(fread(mAudioProfile, AUDIO_PROFILE_PARAMETER_BLOCK_WORD16_SIZE*2,1, fp) < 1) {
-            LOGE("Cannot read VOIP gain file.  Disabling EC/NS.");
+            LOGE("Cannot read VOIP parameter file.  Disabling EC/NS.");
             fclose(fp);
             mEcnsEnabled = 0;
             mEcnsRunning = 0;
@@ -252,7 +252,7 @@ void AudioPostProcessor::initEcns(int rate, int bytes)
         fclose(fp);
     }
     else {
-        LOGE("Cannot open VOIP gain file.  Disabling EC/NS.");
+        LOGE("Cannot open VOIP parameter file.  Disabling EC/NS.");
         mEcnsEnabled = 0;
         mEcnsRunning = 0;
         pthread_mutex_unlock(&mEcnsBufLock);
@@ -324,6 +324,7 @@ int AudioPostProcessor::applyUplinkEcns(void * buffer, int bytes, int rate)
     int16_t *dl_buf;  // The downlink speech may not be contiguous, so copy it here.
     int16_t *ul_buf = (int16_t *)buffer;
     int dl_buf_bytes=0;
+// TODO: remove "throwaway", flush data properly using TEGRA_AUDIO_OUT_FLUSH
     static int throwaway;
 
     if (!mEcnsEnabled)

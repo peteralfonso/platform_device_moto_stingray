@@ -8,7 +8,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/ioctl.h>
-
+#include <linux/cpcap_audio.h>
 #include <linux/tegra_audio.h>
 
 #define FAILIF(x, ...) do if (x) { \
@@ -77,7 +77,7 @@ static void init_wav_header(struct wav_header *hdr,
 int
 main(int argc, char *argv[])
 {
-    int ifd, ifd_c, ofd, opt;
+    int ifd, ifd_c, ofd, opt, cfd;
     const char *name;
     int nr, nw = 0, total = 0;
     int wave = 0;
@@ -119,10 +119,17 @@ main(int argc, char *argv[])
     printf("> sampling rate %d\n", sampling_rate);
     printf("> channels %d\n", num_channels);
 
-    ifd = open("/dev/audio0_in", O_RDWR);
+    cfd = open("/dev/audio_ctl", O_RDWR);
+    FAILIF(cfd < 0, "could not open control: %s\n", strerror(errno));
+    if(sampling_rate > 0) {
+        FAILIF(ioctl(cfd, CPCAP_AUDIO_IN_SET_RATE, sampling_rate),
+            "Could not set input sampling rate: %s\n", strerror(errno));
+    }
+
+    ifd = open("/dev/audio1_in", O_RDWR);
     FAILIF(ifd < 0, "could not open input: %s\n", strerror(errno));
 
-    ifd_c = open("/dev/audio0_in_ctl", O_RDWR);
+    ifd_c = open("/dev/audio1_in_ctl", O_RDWR);
     FAILIF(ifd < 0, "could not open input: %s\n", strerror(errno));
 
     printf("getting audio-input config\n");
@@ -132,8 +139,10 @@ main(int argc, char *argv[])
     if (num_channels >= 0 || sampling_rate >= 0) {
         if (num_channels >= 0)
             cfg.stereo = num_channels == 2;
-        if (sampling_rate >= 0)
-            cfg.rate = sampling_rate;
+//        if (sampling_rate >= 0)
+//            cfg.rate = sampling_rate;
+//  No sample rate conversion in driver
+        cfg.rate = 44100;
         printf("setting audio-input config (stereo %d, rate %d)\n",
                cfg.stereo, cfg.rate);
         FAILIF(ioctl(ifd_c, TEGRA_AUDIO_IN_SET_CONFIG, &cfg) < 0,
