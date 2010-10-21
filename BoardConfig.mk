@@ -77,3 +77,6 @@ ifneq ($(HAVE_NVIDIA_PROP_SRC),false)
 endif
 
 TARGET_RECOVERY_UI_LIB := librecovery_ui_stingray
+
+# Avoid the generation of ldrcc instructions
+NEED_WORKAROUND_CORTEX_A9_745320 := true
