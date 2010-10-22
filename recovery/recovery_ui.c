@@ -29,7 +29,6 @@ char* MENU_ITEMS[] = { "reboot system now",
                        "apply update from USB drive",
                        "wipe data/factory reset",
                        "wipe cache partition",
-                       "restart recovery",   // STOPSHIP: remove this option
                        NULL };
 
 int device_recovery_start() {
@@ -74,11 +73,7 @@ int device_handle_key(int key_code, int visible) {
 }
 
 int device_perform_action(int which) {
-    if (which < 4) return which;
-    switch (which) {
-        case 4: exit(0); break;        // STOPSHIP: remove this option
-    }
-    return -1;
+    return which;
 }
 
 int device_wipe_data() {
