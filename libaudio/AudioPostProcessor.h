@@ -59,8 +59,8 @@ private:
             Mutex       mMmLock;
 
         // EC/NS configuration etc.
-            pthread_mutex_t mEcnsBufLock;
-            pthread_cond_t mEcnsBufCond;  // Signal to unblock write thread
+            Mutex       mEcnsBufLock;
+            Condition   mEcnsBufCond;  // Signal to unblock write thread
             bool        mEcnsEnabled; // Enabled by libaudio
             bool        mEcnsRunning; // ECNS module init done by read thread
             int         mEcnsRate;

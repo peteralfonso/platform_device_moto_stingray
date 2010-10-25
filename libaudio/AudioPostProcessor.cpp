@@ -85,19 +85,14 @@ AudioPostProcessor::AudioPostProcessor()
     mAudioMmEnvVar.sample_rate = CTO_AUDIO_MM_SAMPL_44100;
 
     // Initial conditions for EC/NS
-    // TODO: Consider Android Mutex/Condition
-    pthread_mutex_init(&mEcnsBufLock, 0);
-    pthread_cond_init(&mEcnsBufCond, 0);
     stopEcns();
 }
 
 AudioPostProcessor::~AudioPostProcessor()
 {
     LOGD("%s",__FUNCTION__);
-    if(mEcnsRunning)
+    if (mEcnsRunning)
         stopEcns();
-    pthread_cond_destroy(&mEcnsBufCond);
-    pthread_mutex_destroy(&mEcnsBufLock);
 }
 
 uint32_t AudioPostProcessor::convOutDevToCTO(uint32_t outDev)
@@ -163,14 +158,14 @@ void AudioPostProcessor::setAudioDev(struct cpcap_audio_stream *outDev)
     uint32_t mm_accy = convOutDevToCTO(outDev->id);
     Mutex::Autolock lock(mMmLock);
 
-    if(outDev->id==CPCAP_AUDIO_OUT_HEADSET)
+    if (outDev->id==CPCAP_AUDIO_OUT_HEADSET)
         mEcnsMode = ECNS_MODE_HEADSET_8K;
-//    else if(outDev->id==CPCAP_AUDIO_OUT_EMU)  -- basic dock
+//    else if (outDev->id==CPCAP_AUDIO_OUT_EMU)  -- basic dock
 //        mEcnsmode = ECNS_MODE_RESERVED1_8K;
     else
         mEcnsMode = ECNS_MODE_LOUDSPEAKER_8K;
 
-    if(mEcnsEnabled) {
+    if (mEcnsEnabled) {
         // We may need to reset the EC/NS if the output device changed.
         stopEcns();
     }
@@ -216,16 +211,16 @@ void AudioPostProcessor::initEcns(int rate, int bytes)
 {
     LOGD("%s",__FUNCTION__);
     int mode = mEcnsMode;
-    pthread_mutex_lock(&mEcnsBufLock);
+    Mutex::Autolock lock(mEcnsBufLock);
     mEcnsRate = rate;
 
-    if(mEcnsRate != 8000 && mEcnsRate != 16000) {
+    if (mEcnsRate != 8000 && mEcnsRate != 16000) {
         LOGW("Invalid rate for EC/NS, disabling");
         mEcnsEnabled = 0;
         mEcnsRunning = 0;
     }
 
-    if(mEcnsRate==16000) {
+    if (mEcnsRate==16000) {
        // Offset to the 16K block in the coefficients file
        mode += ECNS_MODE_16K_OFFSET;
     }
@@ -239,14 +234,13 @@ void AudioPostProcessor::initEcns(int rate, int bytes)
     mMemBlocks.scratchMemory = mScratchMemory;
 
     FILE * fp = fopen("/system/etc/voip_aud_params.bin", "r");
-    if(fp) {
+    if (fp) {
         fseek(fp, AUDIO_PROFILE_PARAMETER_BLOCK_WORD16_SIZE*2*mode, SEEK_SET);
-        if(fread(mAudioProfile, AUDIO_PROFILE_PARAMETER_BLOCK_WORD16_SIZE*2,1, fp) < 1) {
+        if (fread(mAudioProfile, AUDIO_PROFILE_PARAMETER_BLOCK_WORD16_SIZE*2,1, fp) < 1) {
             LOGE("Cannot read VOIP parameter file.  Disabling EC/NS.");
             fclose(fp);
             mEcnsEnabled = 0;
             mEcnsRunning = 0;
-            pthread_mutex_unlock(&mEcnsBufLock);
             return;
         }
         fclose(fp);
@@ -255,7 +249,6 @@ void AudioPostProcessor::initEcns(int rate, int bytes)
         LOGE("Cannot open VOIP parameter file.  Disabling EC/NS.");
         mEcnsEnabled = 0;
         mEcnsRunning = 0;
-        pthread_mutex_unlock(&mEcnsBufLock);
         return;
     }
 
@@ -268,13 +261,11 @@ void AudioPostProcessor::initEcns(int rate, int bytes)
     // Send setup parameters to the EC/NS module, init the module.
     API_MOT_SETUP(&mEcnsCtrl, &mMemBlocks);
     API_MOT_INIT(&mEcnsCtrl, &mMemBlocks);
-
-    pthread_mutex_unlock(&mEcnsBufLock);
 }
 void AudioPostProcessor::stopEcns (void)
 {
     LOGD("%s",__FUNCTION__);
-    pthread_mutex_lock(&mEcnsBufLock);
+    AutoMutex lock(mEcnsBufLock);
     mEcnsRunning = 0;
     mEcnsRate = 0;
     if (mEcnsScratchBuf) {
@@ -284,36 +275,38 @@ void AudioPostProcessor::stopEcns (void)
     mEcnsScratchBufSize = 0;
     mEcnsOutFd = -1;
 
-    for(int i=0;i<5;i++) {
-        if(mLogFp[i])
+    for (int i=0;i<5;i++) {
+        if (mLogFp[i])
             fclose(mLogFp[i]);
         mLogFp[i]=0;
     }
     // In case write() is blocked, set it free.
-    pthread_cond_signal(&mEcnsBufCond);
-    pthread_mutex_unlock(&mEcnsBufLock);
+    mEcnsBufCond.signal();
 }
 
 // Returns: Bytes written (actually "to-be-written" by read thread).
 int AudioPostProcessor::writeDownlinkEcns(int fd, void * buffer, int bytes)
 {
     int written = 0;
-    pthread_mutex_lock(&mEcnsBufLock);
+    mEcnsBufLock.lock();
     if (mEcnsRunning) {
         // Only run through here after initEcns has been done by read thread.
-        //LOGD("%s",__FUNCTION__);
         mEcnsOutFd = fd;
         mEcnsOutBuf = buffer;
         mEcnsOutBufSize = bytes;
         mEcnsOutBufReadOffset = 0;
-        pthread_cond_wait(&mEcnsBufCond, &mEcnsBufLock);
-        //LOGD("writeDownlinkEcns returns.");
-        if(mEcnsOutBufSize != 0)
-            LOGE("writeDownlinkEcns: Buffer not consumed");
+        if (mEcnsBufCond.waitRelative(mEcnsBufLock, seconds(1)) != NO_ERROR) {
+            LOGE("%s: Capture thread is stalled.", __FUNCTION__);
+            mEcnsBufLock.unlock();
+            stopEcns();
+            mEcnsBufLock.lock();
+        }
+        if (mEcnsOutBufSize != 0)
+            LOGD("%s: Buffer not consumed", __FUNCTION__);
         else
             written = bytes;  // All data consumed
     }
-    pthread_mutex_unlock(&mEcnsBufLock);
+    mEcnsBufLock.unlock();
     return written;
 }
 
@@ -339,7 +332,7 @@ int AudioPostProcessor::applyUplinkEcns(void * buffer, int bytes, int rate)
     if (mEcnsEnabled && !mEcnsRunning) {
         initEcns(rate, bytes);
         // Throw away next handful of write's to starve out TX buffer.
-        throwaway = 30;
+        throwaway = 50;
     }
 
     // In case the rate switched..
@@ -350,21 +343,17 @@ int AudioPostProcessor::applyUplinkEcns(void * buffer, int bytes, int rate)
         throwaway = 30;
     }
 
-    if(!mEcnsRunning) {
+    if (!mEcnsRunning) {
         LOGE("EC/NS failed to init, read returns.");
         return -1;
     }
 
-    for(int i=0; mEcnsOutBuf==0 && i<1; i++) {
-        // This situation is unlikely, but go ahead and do our best.
-        LOGD("Signal write thread - need data.");
-        pthread_cond_signal(&mEcnsBufCond);
-        LOGD("Stalling read thread for %d usec",5000);
+    for (int i=0; mEcnsOutBuf==0 && i<1; i++) {
+        // Try to wait a bit for downlink speech to come.
         usleep(5000);
     }
-    //LOGD("ecns init done. dl_buf %p, ScratchBuf %p, ScratchBufSize %d, OutBuf %p, OutBufSize %d",
-    //      dl_buf, mEcnsScratchBuf, mEcnsScratchBufSize, mEcnsOutBuf, mEcnsOutBufSize);
-    pthread_mutex_lock(&mEcnsBufLock);
+
+    mEcnsBufLock.lock();
     // Need to gather appropriate amount of downlink speech.
     // Take oldest scratch data first.  The scratch buffer holds fractions of buffers
     // that were too small for processing.
@@ -373,7 +362,7 @@ int AudioPostProcessor::applyUplinkEcns(void * buffer, int bytes, int rate)
         memcpy(dl_buf, mEcnsScratchBuf, dl_buf_bytes);
         //LOGD("Took %d bytes from mEcnsScratchBuf", dl_buf_bytes);
         mEcnsScratchBufSize -= dl_buf_bytes;
-        if(mEcnsScratchBufSize==0) {
+        if (mEcnsScratchBufSize==0) {
             // This should always be true.
             free(mEcnsScratchBuf);
             mEcnsScratchBuf = 0;
@@ -385,7 +374,7 @@ int AudioPostProcessor::applyUplinkEcns(void * buffer, int bytes, int rate)
         int bytes_to_copy = mEcnsOutBufSize - mEcnsOutBufReadOffset;
         bytes_to_copy = bytes_to_copy + dl_buf_bytes > bytes?
                       bytes-dl_buf_bytes:bytes_to_copy;
-        if(bytes_to_copy) {
+        if (bytes_to_copy) {
             memcpy((void *)((unsigned int)dl_buf+dl_buf_bytes),
                    (void *)((unsigned int)mEcnsOutBuf+mEcnsOutBufReadOffset),
                    bytes_to_copy);
@@ -394,7 +383,7 @@ int AudioPostProcessor::applyUplinkEcns(void * buffer, int bytes, int rate)
         //LOGD("Took %d bytes from mEcnsOutBuf.  Need %d more.", bytes_to_copy,
         //      bytes-dl_buf_bytes);
         mEcnsOutBufReadOffset += bytes_to_copy;
-        if(mEcnsOutBufSize - mEcnsOutBufReadOffset < bytes) {
+        if (mEcnsOutBufSize - mEcnsOutBufReadOffset < bytes) {
             // We've depleted the output buffer, it's smaller than one uplink "frame".
             // First take any unused data into scratch, then free the write thread.
             if (mEcnsScratchBuf) {
@@ -417,11 +406,11 @@ int AudioPostProcessor::applyUplinkEcns(void * buffer, int bytes, int rate)
             mEcnsOutBufSize = 0;
             mEcnsOutBufReadOffset = 0;
             //LOGD("Signal write thread - need data.");
-            pthread_cond_signal(&mEcnsBufCond);
+            mEcnsBufCond.signal();
         }
     }
 
-    pthread_mutex_unlock(&mEcnsBufLock);
+    mEcnsBufLock.unlock();
 
     // Pad downlink with zeroes as last resort.  We have to process the UL speech.
     if (dl_buf_bytes < bytes) {
@@ -433,9 +422,9 @@ int AudioPostProcessor::applyUplinkEcns(void * buffer, int bytes, int rate)
     }
 
     // Save the logging output of the ECNS module
-    if((mAudioProfile[ECNS_LOG_ENABLE_OFFSET] & BLACK_BOX_LOG_MASK) == BLACK_BOX_LOG_VAL) {
+    if ((mAudioProfile[ECNS_LOG_ENABLE_OFFSET] & BLACK_BOX_LOG_MASK) == BLACK_BOX_LOG_VAL) {
        // All bits on is an "illegal setting", let's borrow that for black box logging.
-       if(!mLogFp[0] && !mLogFp[1] && !mLogFp[2] && !mLogFp[3]) {
+       if (!mLogFp[0] && !mLogFp[1] && !mLogFp[2] && !mLogFp[3]) {
           LOGE("EC/NS AUDIO LOGGER CONFIGURATION: Using Black-box logging");
           mkdir("/data/ecns", 00770);
           mLogFp[0] = fopen("/data/ecns/ecns_uplink_in.pcm", "w");
@@ -443,16 +432,16 @@ int AudioPostProcessor::applyUplinkEcns(void * buffer, int bytes, int rate)
           mLogFp[2] = fopen("/data/ecns/ecns_uplink_out.pcm", "w");
           mLogFp[3] = fopen("/data/ecns/ecns_downlink_out.pcm", "w");
        }
-       if(!mLogFp[0] && !mLogFp[1] && !mLogFp[2] && !mLogFp[3]) {
+       if (!mLogFp[0] && !mLogFp[1] && !mLogFp[2] && !mLogFp[3]) {
           LOGE("Error opening some files.");
-          for(int i=0;i<5;i++) {
-              if(mLogFp[i])
+          for (int i=0;i<5;i++) {
+              if (mLogFp[i])
                   fclose(mLogFp[i]);
               mLogFp[i]=0;
           }
        }
        // Capture the uplink input, downlink input here.
-       if(mLogFp[0] && mLogFp[1]) {
+       if (mLogFp[0] && mLogFp[1]) {
           fwrite(ul_buf, bytes, 1, mLogFp[0]);
           fwrite(dl_buf, bytes, 1, mLogFp[1]);
        }
@@ -461,9 +450,9 @@ int AudioPostProcessor::applyUplinkEcns(void * buffer, int bytes, int rate)
     API_MOT_DOWNLINK(&mEcnsCtrl, &mMemBlocks, (int16*)dl_buf, (int16*)ul_buf, &(ul_gbuff2[0]));
     API_MOT_UPLINK(&mEcnsCtrl, &mMemBlocks, (int16*)dl_buf, (int16*)ul_buf, &(ul_gbuff2[0]));
 
-    if((mAudioProfile[ECNS_LOG_ENABLE_OFFSET] & BLACK_BOX_LOG_MASK) == BLACK_BOX_LOG_VAL) {
+    if ((mAudioProfile[ECNS_LOG_ENABLE_OFFSET] & BLACK_BOX_LOG_MASK) == BLACK_BOX_LOG_VAL) {
     // Black box logging.  Capture the uplink output, downlink output.
-       if(mLogFp[2] && mLogFp[3]) {
+       if (mLogFp[2] && mLogFp[3]) {
            fwrite(ul_buf, bytes, 1, mLogFp[2]);
            fwrite(dl_buf, bytes, 1, mLogFp[3]);
        }
@@ -476,7 +465,7 @@ int AudioPostProcessor::applyUplinkEcns(void * buffer, int bytes, int rate)
     // Include zero padding.  Our echo canceller needs a consistent path.
     // TODO: Don't playback here, move it to the write() thread.  Also, make sure
     // the output is really stereo before upconverting (i.e. SCO Audio)
-    if(dl_buf_bytes) {
+    if (dl_buf_bytes) {
         // Convert up to stereo, in place.
         for (int i = dl_buf_bytes/2-1; i >= 0; i--) {
             dl_buf[i*2] = dl_buf[i];
@@ -484,7 +473,7 @@ int AudioPostProcessor::applyUplinkEcns(void * buffer, int bytes, int rate)
         }
         dl_buf_bytes *= 2;
     }
-    if(mEcnsOutFd != -1 && !throwaway) {
+    if (mEcnsOutFd != -1 && !throwaway) {
         // Ignore write() retval, nothing we can do.
         ::write(mEcnsOutFd, dl_buf, bytes*2); // Stereo
         // Why not write the first buffer?  Trying to minimize buffering in kernel, let existing data flush out.
@@ -503,7 +492,7 @@ void AudioPostProcessor::ecnsLogToFile(int bytes)
     static int numPoints = 0;
     uint16_t *logp;
 
-    if(mAudioProfile[ECNS_LOG_ENABLE_OFFSET] & ECNS_LOGGING_BITS) {
+    if (mAudioProfile[ECNS_LOG_ENABLE_OFFSET] & ECNS_LOGGING_BITS) {
         if (!mLogFp[0]) {
            numPoints = 0;
            LOGE("EC/NS AUDIO LOGGER CONFIGURATION:");
@@ -517,7 +506,7 @@ void AudioPostProcessor::ecnsLogToFile(int bytes)
            }
            LOGE("Number of log points is %d.",numPoints);
            logp = mMotDatalog;
-           for(int i=0;i<numPoints;i++) {
+           for (int i=0;i<numPoints;i++) {
                char fname[80];
                fname[0]='\0';
                // Log format: FEED TAG1 LEN1 F00D [bytes]
@@ -532,8 +521,8 @@ void AudioPostProcessor::ecnsLogToFile(int bytes)
                logp += 4 + bytes/2;
            }
         }
-        for(int i=0; i<numPoints; i++) {
-            if(mLogFp[i]) {
+        for (int i=0; i<numPoints; i++) {
+            if (mLogFp[i]) {
                 fwrite(&mMotDatalog[4+i*(bytes/2+4)], bytes, 1, mLogFp[i]);
             } else {
                 LOGE("EC/NS logging enabled, but file not open.");

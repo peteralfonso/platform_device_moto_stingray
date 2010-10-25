@@ -245,7 +245,7 @@ status_t AudioHardware::doStandby(int stop_fd, bool output, bool enable)
         standby.id = CPCAP_AUDIO_IN_STANDBY;
         standby.on = enable;
 
-        if (enable) {
+        if (enable && stop_fd >= 0) {
             /* Stop recording, if ongoing.  Muting the microphone will cause
              * CPCAP to not send data through the i2s interface, and read()
              * will block until recording is resumed.
@@ -385,7 +385,7 @@ status_t AudioHardware::setMasterVolume(float v)
     LOGV("Set master vol to %f.\n", v);
     mMasterVol = v;
     Mutex::Autolock lock(mLock);
-    if(mMode == AudioSystem::MODE_IN_CALL)
+    if (mMode == AudioSystem::MODE_IN_CALL)
         setVolume_l(v, AUDIO_HW_GAIN_USECASE_VOICE);
     else
         setVolume_l(v, AUDIO_HW_GAIN_USECASE_MM);
@@ -399,7 +399,7 @@ status_t AudioHardware::setVolume_l(float v, int usecase)
     int spkr = getGain(AUDIO_HW_GAIN_SPKR_GAIN, usecase);
     int mic = getGain(AUDIO_HW_GAIN_MIC_GAIN, usecase);
 
-    if(spkr==0) {
+    if (spkr==0) {
        // no device to set volume on.  Ignore request.
        return -1;
     }
@@ -424,7 +424,7 @@ uint8_t AudioHardware::getGain(int direction, int usecase)
     int path;
     AudioStreamInTegra *input = getActiveInput_l();
     uint32_t inDev = (input == NULL) ? 0 : input->devices();
-    if(!mOutput) {
+    if (!mOutput) {
        LOGE("No output device.");
        return 0;
     }
@@ -539,7 +539,6 @@ status_t AudioHardware::doRouting()
 #ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
     mAudioPP.setAudioDev(&mCurOutDevice);
     mAudioPP.enableEcns(ecnsEnabled);
-
     // Check input/output rates for HW.
     int oldInRate=mHwInRate, oldOutRate=mHwOutRate;
     if (ecnsEnabled) {
@@ -554,6 +553,18 @@ status_t AudioHardware::doRouting()
         mHwOutRate = 44100;
         LOGV("No EC/NS, set input rate %d, output %d.", mHwInRate, mHwOutRate);
     }
+    if (mHwOutRate != oldOutRate) {
+        // Flush old data (wrong rate) from I2S driver before changing rate.
+        if (mOutput)
+            mOutput->flush();
+        // Now the DMA is empty, change the rate.
+        if (::ioctl(mCpcapCtlFd, CPCAP_AUDIO_OUT_SET_RATE,
+                  mHwOutRate) < 0)
+            LOGE("could not set output rate(%d): %s\n",
+                  mHwOutRate, strerror(errno));
+        if (::ioctl(mCpcapCtlFd, CPCAP_AUDIO_OUT_GET_RATE, &mHwOutRate))
+            LOGE("CPCAP driver error reading rates.");
+    }
     if (mHwInRate != oldInRate) {
         LOGV("Minor TODO: Flush input if active.");
         if (::ioctl(mCpcapCtlFd, CPCAP_AUDIO_IN_SET_RATE,
@@ -561,17 +572,6 @@ status_t AudioHardware::doRouting()
             LOGE("could not set input rate(%d): %s\n",
                   mHwInRate, strerror(errno));
         if (::ioctl(mCpcapCtlFd, CPCAP_AUDIO_IN_GET_RATE, &mHwInRate))
-            LOGE("CPCAP driver error reading rates.");
-    }
-    if (mHwOutRate != oldOutRate) {
-        if (::ioctl(mCpcapCtlFd, CPCAP_AUDIO_OUT_SET_RATE,
-                  mHwOutRate) < 0)
-            LOGE("could not set output rate(%d): %s\n",
-                  mHwOutRate, strerror(errno));
-        // Clear old data (wrong rate) from I2S driver.
-        if (mOutput)
-           mOutput->flush();
-        if (::ioctl(mCpcapCtlFd, CPCAP_AUDIO_OUT_GET_RATE, &mHwOutRate))
             LOGE("CPCAP driver error reading rates.");
     }
 #endif
@@ -774,7 +774,7 @@ ssize_t AudioHardware::AudioStreamOutTegra::write(const void* buffer, size_t byt
         if (!mSrcInitted ||
              mSrcInRate != (int)sampleRate() ||
              mSrcOutRate != mHardware->mHwOutRate) {
-            LOGW("%s: downconvert started from %d to %d",__FUNCTION__,
+            LOGI("%s: downconvert started from %d to %d",__FUNCTION__,
                  sampleRate(), mHardware->mHwOutRate);
             srcInit(sampleRate(), mHardware->mHwOutRate);
             if (!mSrcInitted) {
@@ -859,15 +859,16 @@ error:
 
 void AudioHardware::AudioStreamOutTegra::flush()
 {
-    // TODO: Reimplement using TEGRA_AUDIO_OUT_FLUSH
+    LOGD("AudioStreamOutTegra::flush()");
     // Prevent someone from writing the fd while we do this operation.
     Mutex::Autolock lock(mFdLock);
 #ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
     // Make sure read thread isn't stuck writing to this fd in EC/NS
+    // TODO: Remove this line when write() thread is actually writing. (and not read thread in ecns)
     mHardware->mAudioPP.writeDownlinkEcns(0,0,0); // fd, buffer, size
 #endif
-    ::close(mFd);
-    mFd = ::open("/dev/audio0_out", O_RDWR);
+    if (::ioctl(mFdCtl, TEGRA_AUDIO_OUT_FLUSH) < 0)
+       LOGE("could not flush playback: %s\n", strerror(errno));
 }
 
 status_t AudioHardware::AudioStreamOutTegra::online()
@@ -974,7 +975,7 @@ status_t AudioHardware::AudioStreamOutTegra::getRenderPosition(uint32_t *dspFram
 // ----------------------------------------------------------------------------
 
 AudioHardware::AudioStreamInTegra::AudioStreamInTegra() :
-    mHardware(0), mState(AUDIO_INPUT_CLOSED), mRetryCount(0),
+    mHardware(0), mFd(-1), mFdCtl(-1), mState(AUDIO_INPUT_CLOSED), mRetryCount(0),
     mFormat(AUDIO_HW_IN_FORMAT), mChannels(AUDIO_HW_IN_CHANNELS),
     mSampleRate(AUDIO_HW_IN_SAMPLERATE), mBufferSize(AUDIO_HW_IN_BUFFERSIZE),
     mAcoustics((AudioSystem::audio_in_acoustics)0), mDevices(0)
@@ -1023,10 +1024,10 @@ status_t AudioHardware::AudioStreamInTegra::set(
     mSampleRate = *pRate;
     // 20 millisecond buffers default
     mBufferSize = mSampleRate * sizeof(int16_t) * AudioSystem::popCount(mChannels) / 50;
-    if (mBufferSize & 0x3) {
-       // Not divisible by 4.
-       mBufferSize +=4;
-       mBufferSize &= ~0x3;
+    if (mBufferSize & 0x7) {
+       // Not divisible by 8.
+       mBufferSize +=8;
+       mBufferSize &= ~0x7;
     }
 
     return NO_ERROR;
@@ -1048,8 +1049,8 @@ AudioHardware::AudioStreamInTegra::~AudioStreamInTegra()
 ssize_t AudioHardware::AudioStreamInTegra::read(void* buffer, ssize_t bytes)
 {
     ssize_t ret;
+    ssize_t ret2 = 0;
     struct tegra_audio_error_counts errors;
-
     LOGV("AudioStreamInTegra::read(%p, %ld)", buffer, bytes);
     if (!mHardware) {
         LOGE("%s: mHardware is null", __FUNCTION__);
@@ -1067,9 +1068,15 @@ ssize_t AudioHardware::AudioStreamInTegra::read(void* buffer, ssize_t bytes)
        return -1;
     }
 
-    ret = ::read(mFd, buffer, bytes);
+    ret = ::read(mFd, buffer, bytes/2);
+    if (ret >= 0)
+        ret2 = ::read(mFd, (char *)buffer+bytes/2, bytes/2);
+    if (ret2 < 0)
+        ret = ret2;
     if (ret < 0)
         LOGE("Error reading from audio in: %s", strerror(errno));
+    else
+        ret += ret2;
 
     if (::ioctl(mFdCtl, TEGRA_AUDIO_IN_GET_ERROR_COUNT, &errors) < 0)
         LOGE("Could not retrieve recording error count: %s\n", strerror(errno));
@@ -1121,9 +1128,7 @@ status_t AudioHardware::AudioStreamInTegra::online()
         return status;
     }
     config.stereo = AudioSystem::popCount(mChannels) == 2;
-    // TODO: Disable SRC in Kernel
-    // config.rate = mSampleRate;
-    config.rate = 44100;
+    config.rate = mSampleRate;
     status = ::ioctl(mFdCtl, TEGRA_AUDIO_IN_SET_CONFIG, &config);
 
     if (status < 0) {
@@ -1137,16 +1142,25 @@ status_t AudioHardware::AudioStreamInTegra::online()
         }
     }
 
-    // Shoot for 20 msec minimum of chunk size, mBufferSize is 20 msec.
+    // Configure DMA to be between half of the mBufferSize and the whole buffer size.
+    // Design decision:
+    // Each buffer is 20 msec.  The 8 KHz example is below:
+    // With 512 byte / 32 msec DMA's, and capture buffers of 20 msec, I get:
+    // Max jitter is 28 msec at buffer 5 (expected data at 100 msec, received at 128).
+    //
+    // With 256 byte / 16 msec DMA's, and capture buffers of 20 msec, I get:
+    // Max jitter is 12 msec at buffer 1 (expected data after 20 msec, received at 32).
+    //
     struct tegra_audio_buf_config buf_config;
-    int chunk_temp = mBufferSize;
-    buf_config.chunk = 0;
+    int size_temp = mBufferSize;
+    buf_config.size = 0;
     do {
-       buf_config.chunk++;
-       chunk_temp >>=1;
-    } while(chunk_temp);
-    buf_config.size = buf_config.chunk+1;
-    buf_config.threshold = buf_config.chunk-1;
+       buf_config.size++;
+       size_temp >>=1;
+    } while (size_temp);
+    buf_config.size--;
+    buf_config.chunk = buf_config.size-1;
+    buf_config.threshold = buf_config.size-2;
 
     if (::ioctl(mFdCtl, TEGRA_AUDIO_IN_SET_BUF_CONFIG, &buf_config)) {
        LOGE("Error setting buffer sizes, is capture running?");
