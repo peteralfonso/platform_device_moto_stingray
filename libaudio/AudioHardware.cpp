@@ -886,7 +886,9 @@ status_t AudioHardware::AudioStreamOutTegra::standby()
     }
     // Prevent EC/NS from writing to the file anymore.
     Mutex::Autolock lock(mFdLock);
+#ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
     mHardware->mAudioPP.writeDownlinkEcns(-1,0,0,&mFdLock); // fd, buffer, size, lockp
+#endif
     status = mHardware->doStandby(mFdCtl, true, true); // output, standby
     return status;
 }
