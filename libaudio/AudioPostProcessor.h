@@ -31,12 +31,14 @@ public:
                         AudioPostProcessor();
                         ~AudioPostProcessor();
             void        setPlayAudioRate(int rate);
-            void        setAudioDev(struct cpcap_audio_stream *outDev);
+            void        setAudioDev(struct cpcap_audio_stream *outDev,
+                                    struct cpcap_audio_stream *inDev,
+                                    bool is_bt, bool is_bt_ec, bool is_spdif);
             void        doMmProcessing(void * buffer, int numSamples);
             int         getEcnsRate(void);
 
             void        enableEcns(bool value);
-            int         writeDownlinkEcns(int fd, void * buffer, int bytes);
+            int         writeDownlinkEcns(int fd, void * buffer, int bytes, Mutex * fdLockp);
             int         applyUplinkEcns(void * buffer, int bytes, int rate);
             bool        isEcnsEnabled(void) { return mEcnsEnabled; };
 
@@ -70,16 +72,18 @@ private:
             int         mEcnsOutBufSize;
             int         mEcnsOutBufReadOffset;
             int         mEcnsOutFd;       // fd pointing to output driver
-            int         mEcnsMode;
-            FILE *      mLogFp[5];
+            Mutex *     mEcnsOutFdLockp;
+            CTO_AUDIO_USECASES_CTRL mEcnsMode;
+            FILE *      mLogFp[15];
+            int16_t *   mEcnsDlBuf;
+            int         mEcnsDlBufSize;
 
         // EC/NS Module memory
             T_MOT_MEM_BLOCKS mMemBlocks;
             T_MOT_CTRL  mEcnsCtrl;
             uint16_t    mStaticMemory_1[API_MOT_STATIC_MEM_WORD16_SIZE];
             uint16_t    mMotDatalog[API_MOT_DATALOGGING_MEM_WORD16_SIZE];
-            uint16_t    mScratchMemory[API_MOT_SCRATCH_MEM_WORD16_SIZE];
-            uint16_t    mAudioProfile[AUDIO_PROFILE_PARAMETER_BLOCK_WORD16_SIZE];
+            uint16_t    mParamTable[AUDIO_PROFILE_PARAMETER_BLOCK_WORD16_SIZE*CTO_AUDIO_USECASE_TOTAL_NUMBER];
 };
 
 } // namespace android

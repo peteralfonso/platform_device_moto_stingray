@@ -62,7 +62,7 @@ AudioHardware::AudioHardware() :
 
 #ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
     // Init the MM Audio Post Processing
-    mAudioPP.setAudioDev(&mCurOutDevice);
+    mAudioPP.setAudioDev(&mCurOutDevice, &mCurInDevice, false, false, false);
 #endif
 
     readHwGainFile();
@@ -223,12 +223,12 @@ status_t AudioHardware::doStandby(int stop_fd, bool output, bool enable)
              * will cause CPCAP to not drive the i2s interface, and write()
              * will block until playback is resumed.
              */
-            LOGV("%s: flush playback", __FUNCTION__);
+            LOGD("%s: flush playback", __FUNCTION__);
             if (::ioctl(stop_fd, TEGRA_AUDIO_OUT_FLUSH) < 0) {
                 LOGE("could not flush playback: %s\n",
                      strerror(errno));
             }
-            LOGV("%s: playback flushed", __FUNCTION__);
+            LOGD("%s: playback flushed", __FUNCTION__);
         }
 
         if (::ioctl(mCpcapCtlFd, CPCAP_AUDIO_OUT_SET_OUTPUT, &standby) < 0) {
@@ -537,7 +537,7 @@ status_t AudioHardware::doRouting()
                        (getActiveInputRate() == 8000 || getActiveInputRate() == 16000);
 
 #ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
-    mAudioPP.setAudioDev(&mCurOutDevice);
+    mAudioPP.setAudioDev(&mCurOutDevice, &mCurInDevice, false, false, false);
     mAudioPP.enableEcns(ecnsEnabled);
     // Check input/output rates for HW.
     int oldInRate=mHwInRate, oldOutRate=mHwOutRate;
@@ -702,6 +702,8 @@ status_t AudioHardware::AudioStreamOutTegra::set(
 
 AudioHardware::AudioStreamOutTegra::~AudioStreamOutTegra()
 {
+    // Prevent someone from flushing the fd during a close.
+    Mutex::Autolock lock(mFdLock);
     if (mFd >= 0) ::close(mFd);
     if (mFdCtl >= 0) ::close(mFdCtl);
 }
@@ -754,9 +756,6 @@ ssize_t AudioHardware::AudioStreamOutTegra::write(const void* buffer, size_t byt
     ssize_t written = 0;
     const uint8_t* p = static_cast<const uint8_t*>(buffer);
     size_t outsize = bytes;
-
-    // Prevent someone from flushing the fd during a write.
-    Mutex::Autolock lock(mFdLock);
 
     status = online(); // if already online, a no-op
     if (status < 0) {
@@ -818,7 +817,7 @@ ssize_t AudioHardware::AudioStreamOutTegra::write(const void* buffer, size_t byt
         // It expects MONO data.
         // If EC/NS is not running, it will return 0, and we need to write this data to the
         // driver ourselves.
-        written = mHardware->mAudioPP.writeDownlinkEcns(mFd,(void *)buffer, outsize);
+        written = mHardware->mAudioPP.writeDownlinkEcns(mFd,(void *)buffer, outsize, &mFdLock);
     }
     if (mHardware->mAudioPP.isEcnsEnabled() || mSrcInitted) {
         // Move audio back up to Stereo, if the EC/NS wasn't in fact running and we're
@@ -837,6 +836,8 @@ ssize_t AudioHardware::AudioStreamOutTegra::write(const void* buffer, size_t byt
 #endif
 
     if (written != (ssize_t)outsize) {
+        // Prevent someone from flushing the fd during a write.
+        Mutex::Autolock lock(mFdLock);
         written = ::write(mFd, buffer, outsize);
     }
     if (written < 0)
@@ -859,16 +860,12 @@ error:
 
 void AudioHardware::AudioStreamOutTegra::flush()
 {
-    LOGD("AudioStreamOutTegra::flush()");
-    // Prevent someone from writing the fd while we do this operation.
+    // Prevent someone from writing the fd while we flush
     Mutex::Autolock lock(mFdLock);
-#ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
-    // Make sure read thread isn't stuck writing to this fd in EC/NS
-    // TODO: Remove this line when write() thread is actually writing. (and not read thread in ecns)
-    mHardware->mAudioPP.writeDownlinkEcns(0,0,0); // fd, buffer, size
-#endif
+    LOGD("AudioStreamOutTegra::flush()");
     if (::ioctl(mFdCtl, TEGRA_AUDIO_OUT_FLUSH) < 0)
        LOGE("could not flush playback: %s\n", strerror(errno));
+    LOGD("AudioStreamOutTegra::flush() returns");
 }
 
 status_t AudioHardware::AudioStreamOutTegra::online()
@@ -887,7 +884,11 @@ status_t AudioHardware::AudioStreamOutTegra::standby()
         LOGV("%s: output already in standby", __FUNCTION__);
         return NO_ERROR;
     }
-
+    // Prevent EC/NS from writing to the file anymore.
+    Mutex::Autolock lock(mFdLock);
+#ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
+    mHardware->mAudioPP.writeDownlinkEcns(-1,0,0,&mFdLock); // fd, buffer, size, lockp
+#endif
     status = mHardware->doStandby(mFdCtl, true, true); // output, standby
     return status;
 }
