@@ -27,27 +27,7 @@ extern uint16_t HC_CTO_AUDIO_MM_PARAMETER_TABLE[];
 ///////////////////////////////////
 // Some logging #defines
 #define ECNS_LOG_ENABLE_OFFSET 1 // 2nd word of the configuration buffer
-#define ECNS_LOGGING_BITS 0x7FFF // 15 possible logpoints
-
-// ID's for Uplink logs
-#define MOT_LOG_DL_REF     0x8080
-#define MOT_LOG_TX1_AS1    0x8040
-#define MOT_LOG_TX2_AS2    0x8020
-#define MOT_LOG_AS1_iENCS  0x8010
-#define MOT_LOG_AS2_iENCS  0x8008
-#define MOT_LOG_iENCS_AS   0x8004
-#define MOT_LOG_AS_ANM     0x8002
-#define MOT_LOG_ANM_ENC    0x8001
-
-// ID's for downlink logs
-#define MOT_LOG_DEC_ANM    0x0800
-#define MOT_LOG_ANM_AS     0x0400
-#define MOT_LOG_AS_iENCS   0x0200
-#define MOT_LOG_iENCS_RAW  0x0100
-
-// RUN-TIME audio profile
-#define MOT_LOG_RUNTIME_AUDIOPROFILE  0x1000
-#define MOT_LOG_T_MOT_CTRL         0x2000
+#define ECNS_LOGGING_BITS 0xBFFF // 15 possible logpoints
 
 #define MOT_LOG_DELIMITER_START  0xFEED
 #define MOT_LOG_DELIMITER_END    0xF00D
@@ -81,9 +61,10 @@ AudioPostProcessor::AudioPostProcessor() :
 
 AudioPostProcessor::~AudioPostProcessor()
 {
-    LOGD("%s",__FUNCTION__);
-    if (mEcnsRunning)
+    if (mEcnsRunning) {
+        LOGD("%s",__FUNCTION__);
         stopEcns();
+    }
 }
 
 uint32_t AudioPostProcessor::convOutDevToCTO(uint32_t outDev)
@@ -140,8 +121,11 @@ void AudioPostProcessor::configMmAudio()
 
 void AudioPostProcessor::enableEcns(bool value)
 {
-    LOGD("enableEcns(%s)",value?"true":"false");
+    if(mEcnsEnabled!=value)
+        LOGD("enableEcns(%s)",value?"true":"false");
     mEcnsEnabled = value;
+    if (!mEcnsEnabled)
+        stopEcns();
 }
 
 void AudioPostProcessor::setAudioDev(struct cpcap_audio_stream *outDev,
@@ -172,7 +156,7 @@ void AudioPostProcessor::setAudioDev(struct cpcap_audio_stream *outDev,
         stopEcns();
     }
 
-    LOGD("setAudioDev %d", outDev->id);
+    LOGV("setAudioDev %d", outDev->id);
     if (mm_accy != mAudioMmEnvVar.accy) {
         mAudioMmEnvVar.accy = mm_accy;
         configMmAudio();
@@ -266,7 +250,8 @@ void AudioPostProcessor::initEcns(int rate, int bytes)
 }
 void AudioPostProcessor::stopEcns (void)
 {
-    LOGD("%s",__FUNCTION__);
+    if (mEcnsRunning)
+        LOGD("%s",__FUNCTION__);
     AutoMutex lock(mEcnsBufLock);
     mEcnsRunning = 0;
     mEcnsRate = 0;
@@ -292,7 +277,8 @@ void AudioPostProcessor::stopEcns (void)
 }
 
 // Returns: Bytes written (actually "to-be-written" by read thread).
-int AudioPostProcessor::writeDownlinkEcns(int fd, void * buffer, int bytes, Mutex *fdLock)
+int AudioPostProcessor::writeDownlinkEcns(int fd, void * buffer, bool stereo,
+                                          int bytes, Mutex *fdLock)
 {
     int written = 0;
     mEcnsBufLock.lock();
@@ -312,6 +298,7 @@ int AudioPostProcessor::writeDownlinkEcns(int fd, void * buffer, int bytes, Mute
         mEcnsOutBufSize = bytes;
         mEcnsOutBufReadOffset = 0;
         mEcnsOutFdLockp = fdLock;
+        mEcnsOutStereo = stereo;
         if (mEcnsBufCond.waitRelative(mEcnsBufLock, seconds(1)) != NO_ERROR) {
             LOGE("%s: Capture thread is stalled.", __FUNCTION__);
         }
@@ -456,7 +443,7 @@ int AudioPostProcessor::applyUplinkEcns(void * buffer, int bytes, int rate)
     // Include zero padding.  Our echo canceller needs a consistent path.
     // TODO: Don't playback here, move it to the write() thread.  Also, make sure
     // the output is really stereo before upconverting (i.e. SCO Audio)
-    if (dl_buf_bytes) {
+    if (dl_buf_bytes && mEcnsOutStereo) {
         // Convert up to stereo, in place.
         for (int i = dl_buf_bytes/2-1; i >= 0; i--) {
             dl_buf[i*2] = dl_buf[i];
@@ -466,7 +453,7 @@ int AudioPostProcessor::applyUplinkEcns(void * buffer, int bytes, int rate)
     }
     if (mEcnsOutFd != -1) {
         mEcnsOutFdLockp->lock();
-        ::write(mEcnsOutFd, dl_buf, bytes*2); // Stereo
+        ::write(mEcnsOutFd, dl_buf, bytes*(mEcnsOutStereo?2:1));
         mEcnsOutFdLockp->unlock();
     }
     // Do the CTO SuperAPI internal logging.  It can log various steps of uplink and downlink speech.
@@ -500,13 +487,12 @@ void AudioPostProcessor::ecnsLogToFile(int bytes)
                char fname[80];
                fname[0]='\0';
                // Log format: FEED TAG1 LEN1 F00D [bytes]
-               LOGD("feed? %04X",logp[0]);
-               sprintf(fname, ECNSLOGPATH"/%cl-0x%04X.pcm",
-                   logp[1] & 0x8000?'u':'d',
+               LOGV("feed? %04X",logp[0]);
+               sprintf(fname, ECNSLOGPATH"/log-0x%04X.pcm",
                    logp[1]);
-               LOGE("fname[%d] = %s",i,fname);
+               LOGD("fname[%d] = %s",i,fname);
                LOGD("len = %d*2", logp[2]);
-               LOGD("food? %04X", logp[3]);
+               LOGV("food? %04X", logp[3]);
                mLogFp[i]=fopen((const char *)fname, "w");
                logp += 4 + logp[2];
            }

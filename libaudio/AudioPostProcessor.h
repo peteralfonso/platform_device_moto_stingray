@@ -38,7 +38,8 @@ public:
             int         getEcnsRate(void);
 
             void        enableEcns(bool value);
-            int         writeDownlinkEcns(int fd, void * buffer, int bytes, Mutex * fdLockp);
+            int         writeDownlinkEcns(int fd, void * buffer,
+                                          bool stereo, int bytes, Mutex * fdLockp);
             int         applyUplinkEcns(void * buffer, int bytes, int rate);
             bool        isEcnsEnabled(void) { return mEcnsEnabled; };
 
@@ -77,6 +78,7 @@ private:
             FILE *      mLogFp[15];
             int16_t *   mEcnsDlBuf;
             int         mEcnsDlBufSize;
+            bool        mEcnsOutStereo;
 
         // EC/NS Module memory
             T_MOT_MEM_BLOCKS mMemBlocks;

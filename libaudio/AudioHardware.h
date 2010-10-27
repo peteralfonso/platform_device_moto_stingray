@@ -27,6 +27,7 @@
 #include "AudioPostProcessor.h"
 #ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
 #include "src_type_def.h"
+#include "src_lib.h"
 #endif
 extern "C" {
 #include <linux/msm_audio.h>
@@ -74,6 +75,7 @@ class AudioHardware : public  AudioHardwareBase
 {
     class AudioStreamOutTegra;
     class AudioStreamInTegra;
+    class AudioStreamSrc;
 
 public:
                         AudioHardware();
@@ -123,6 +125,7 @@ private:
     status_t    dumpInternals(int fd, const Vector<String16>& args);
     uint32_t    getInputSampleRate(uint32_t sampleRate);
     status_t    doStandby(int stop_fd, bool output, bool enable);
+    status_t    doRouting_l();
     status_t    doRouting();
     status_t    setVolume_l(float v, int usecase);
     uint8_t     getGain(int direction, int usecase);
@@ -130,10 +133,33 @@ private:
 
     AudioStreamInTegra*   getActiveInput_l();
 
+#ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
+    class AudioStreamSrc {
+    public:
+                            AudioStreamSrc();
+                            ~AudioStreamSrc();
+    inline      int         inRate() {return mSrcInRate;};
+    inline      int         outRate() {return mSrcOutRate;};
+    inline      bool        initted() {return mSrcInitted;};
+                void        init(int inRate, int outRate);
+    inline      void        deinit() {mSrcInitted = false;};
+                SRC_IO_OBJ_T mIoData;
+    inline      void        srcConvert() {src_convert(&mSrcStaticData, 0x800, &mIoData);};
+    private:
+                SRC_MODE_T  mSrcMode;
+                SRC_OBJ_T   mSrcStaticData;
+                SRC_INT16_T mSrcScratchMem[SRC_MAX_MEM];
+                int         mSrcInRate;
+                int         mSrcOutRate;
+                bool        mSrcInitted;
+    };
+#endif
+
     class AudioStreamOutTegra : public AudioStreamOut {
     public:
                             AudioStreamOutTegra();
         virtual             ~AudioStreamOutTegra();
+        virtual void        setDriver(bool speaker, bool bluetooth);
                 status_t    set(AudioHardware* mHardware,
                                 uint32_t devices,
                                 int *pFormat,
@@ -158,21 +184,22 @@ private:
         virtual status_t    getRenderPosition(uint32_t *dspFrames);
     private:
                 AudioHardware* mHardware;
+                Mutex       mLock;
                 int         mFd;
                 int         mFdCtl;
+                int         mBtFd;
+                int         mBtFdCtl;
+                int         mBtFdIoCtl;
                 int         mStartCount;
                 int         mRetryCount;
                 uint32_t    mDevices;
                 Mutex       mFdLock;
+                bool        mIsSpkrEnabled;
+                bool        mIsBtEnabled;
+                int16_t     mSpareSample;
+                bool        mHaveSpareSample;
 #ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
-                void srcInit(int inRate, int outRate);
-                SRC_MODE_T mSrcMode;
-                SRC_OBJ_T mSrcStaticData;
-                SRC_IO_OBJ_T mSrcIoData;
-                SRC_INT16_T mSrcScratchMem[SRC_MAX_MEM];
-                int mSrcInRate;
-                int mSrcOutRate;
-                bool mSrcInitted;
+                AudioStreamSrc mSrc;
 #endif
     };
 
@@ -207,9 +234,11 @@ private:
         virtual unsigned int  getInputFramesLost() const { return 0; }
                 uint32_t    devices() { return mDevices; }
                 int         state() const { return mState; }
+                void        setDriver(bool mic, bool bluetooth);
 
     private:
                 AudioHardware* mHardware;
+                Mutex       mLock;
                 int         mFd;
                 int         mFdCtl;
                 int         mState;
@@ -220,6 +249,14 @@ private:
                 size_t      mBufferSize;
                 AudioSystem::audio_in_acoustics mAcoustics;
                 uint32_t    mDevices;
+                bool        mNeedsOnline;
+                bool        mIsMicEnabled;
+                bool        mIsBtEnabled;
+                // 20 millisecond scratch buffer
+                int16_t     mInScratch[48000/50];
+#ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
+                AudioStreamSrc mSrc;
+#endif
     };
 
             static const uint32_t inputSamplingRates[];
