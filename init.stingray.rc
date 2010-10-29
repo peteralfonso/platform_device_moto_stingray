@@ -19,7 +19,8 @@ on boot
     chown dhcp dhcp /data/misc/dhcp
 
     # we will remap this as /mnt/sdcard with the sdcard fuse tool
-    mkdir /data/media 0775 system sdcard_rw
+    mkdir /data/media 0775 media_rw media_rw
+    chown media_rw media_rw /data/media
     setprop ro.media.storage /data/media
 
 # bluetooth
@@ -178,8 +179,8 @@ service whisper /system/bin/whisperd
     group radio system mot_accy
 
 # create virtual SD card at /mnt/sdcard, based on the /data/media directory
-# daemon will drop to user/group system/sdcard_rw after initializing
-service sdcard /system/bin/sdcard /data/media 1000 1015
+# daemon will drop to user/group system/media_rw after initializing
+service sdcard /system/bin/sdcard /data/media 1000 1023
 
 service motolocation /system/bin/sh /system/bin/am startservice -n com.motorola.android.locationproxy/com.motorola.android.locationproxy.LocationProxyService
     disabled
