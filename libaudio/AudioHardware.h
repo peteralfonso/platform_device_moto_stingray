@@ -159,7 +159,7 @@ private:
     public:
                             AudioStreamOutTegra();
         virtual             ~AudioStreamOutTegra();
-        virtual void        setDriver(bool speaker, bool bluetooth);
+        virtual void        setDriver(bool speaker, bool bluetooth, bool spdif);
                 status_t    set(AudioHardware* mHardware,
                                 uint32_t devices,
                                 int *pFormat,
@@ -190,12 +190,15 @@ private:
                 int         mBtFd;
                 int         mBtFdCtl;
                 int         mBtFdIoCtl;
+                int         mSpdifFd;
+                int         mSpdifFdCtl;
                 int         mStartCount;
                 int         mRetryCount;
                 uint32_t    mDevices;
                 Mutex       mFdLock;
                 bool        mIsSpkrEnabled;
                 bool        mIsBtEnabled;
+                bool        mIsSpdifEnabled;
                 int16_t     mSpareSample;
                 bool        mHaveSpareSample;
 #ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS

@@ -232,7 +232,8 @@ status_t AudioHardware::doStandby(int stop_fd, bool output, bool enable)
              * will cause CPCAP to not drive the i2s interface, and write()
              * will block until playback is resumed.
              */
-            mOutput->flush();
+            if (mOutput)
+                mOutput->flush();
         }
 
         if (::ioctl(mCpcapCtlFd, CPCAP_AUDIO_OUT_SET_OUTPUT, &standby) < 0) {
@@ -479,7 +480,10 @@ status_t AudioHardware::doRouting_l()
                            AudioSystem::DEVICE_OUT_BLUETOOTH_SCO |
                            AudioSystem::DEVICE_OUT_BLUETOOTH_SCO_HEADSET |
                            AudioSystem::DEVICE_OUT_BLUETOOTH_SCO_CARKIT );
-    uint32_t speakerOutDevices = outputDevices ^ btScoOutDevices;
+    uint32_t spdifOutDevices = outputDevices & (
+                           AudioSystem::DEVICE_OUT_DGTL_DOCK_HEADSET |
+                           AudioSystem::DEVICE_OUT_AUX_DIGITAL );
+    uint32_t speakerOutDevices = outputDevices ^ btScoOutDevices ^ spdifOutDevices;
     uint32_t btScoInDevice = inputDevice & AudioSystem::DEVICE_IN_BLUETOOTH_SCO_HEADSET;
     uint32_t micInDevice   = inputDevice ^ btScoInDevice;
     int sndOutDevice = -1;
@@ -553,7 +557,8 @@ status_t AudioHardware::doRouting_l()
              strerror(errno));
 
     mOutput->setDriver(speakerOutDevices?true:false,
-                       btScoOutDevices||btScoInDevice);
+                       btScoOutDevices||btScoInDevice,
+                       spdifOutDevices?true:false);
     if (input)
         input->setDriver(micInDevice?true:false,
                          btScoInDevice?true:false);
@@ -564,7 +569,7 @@ status_t AudioHardware::doRouting_l()
 #ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
     mAudioPP.setAudioDev(&mCurOutDevice, &mCurInDevice,
                          btScoOutDevices||btScoInDevice, mBluetoothNrec,
-                         false);
+                         spdifOutDevices?true:false);
     mAudioPP.enableEcns(ecnsEnabled);
     // Check input/output rates for HW.
     int oldInRate=mHwInRate, oldOutRate=mHwOutRate;
@@ -760,13 +765,15 @@ void AudioHardware::AudioStreamSrc::init(int inRate, int outRate)
 
 AudioHardware::AudioStreamOutTegra::AudioStreamOutTegra() :
     mHardware(0), mFd(-1), mFdCtl(-1), mStartCount(0), mRetryCount(0), mDevices(0),
-    mIsSpkrEnabled(0), mIsBtEnabled(0)
+    mIsSpkrEnabled(0), mIsBtEnabled(0), mIsSpdifEnabled(0)
 {
     mFd = ::open("/dev/audio0_out", O_RDWR);
     mFdCtl = ::open("/dev/audio0_out_ctl", O_RDWR);
     mBtFd = ::open("/dev/audio1_out", O_RDWR);
     mBtFdCtl = ::open("/dev/audio1_out_ctl", O_RDWR);
     mBtFdIoCtl = ::open("/dev/audio1_ctl", O_RDWR);
+    mSpdifFd = ::open("/dev/spdif_out", O_RDWR);
+    mSpdifFdCtl = ::open("/dev/spdif_out_ctl", O_RDWR);
 
     struct tegra_audio_buf_config buf_config;
     // Allow a few buffers of data at 8K mono for playback to BT SCO
@@ -783,21 +790,22 @@ AudioHardware::AudioStreamOutTegra::AudioStreamOutTegra() :
 }
 
 // Called with mHardware->mLock held.
-void AudioHardware::AudioStreamOutTegra::setDriver(bool speaker, bool bluetooth) {
+void AudioHardware::AudioStreamOutTegra::setDriver(bool speaker, bool bluetooth, bool spdif) {
     int bit_format = TEGRA_AUDIO_BIT_FORMAT_DEFAULT;
     bool is_bt_bypass = false;
     Mutex::Autolock lock(mLock);
-    LOGV("%s: Analog speaker? %s. Bluetooth? %s.", __FUNCTION__,
-        speaker?"yes":"no", bluetooth?"yes":"no");
+    LOGV("%s: Analog speaker? %s. Bluetooth? %s. S/PDIF? %s.", __FUNCTION__,
+        speaker?"yes":"no", bluetooth?"yes":"no", spdif?"yes":"no");
 
-    if (mIsBtEnabled && !bluetooth)
+    if ((mIsBtEnabled && !bluetooth) ||
+        (mIsSpdifEnabled && !spdif))
         flush();
     if (mIsSpkrEnabled && !speaker)
         mHardware->doStandby(mFdCtl, true, true);
 
     mIsSpkrEnabled = speaker;
     mIsBtEnabled = bluetooth;
-
+    mIsSpdifEnabled = spdif;
     if (mIsBtEnabled) {
         bit_format = TEGRA_AUDIO_BIT_FORMAT_DSP;
         is_bt_bypass = true;
@@ -844,10 +852,14 @@ status_t AudioHardware::AudioStreamOutTegra::set(
         mFdCtl >= 0 &&
         mBtFd >= 0 &&
         mBtFdCtl >= 0 &&
-        mBtFdIoCtl >= 0)
+        mBtFdIoCtl >= 0 &&
+        mSpdifFd >= 0 &&
+        mSpdifFdCtl >= 0)
         return NO_ERROR;
-    else
+    else {
+        LOGE("Problem opening device files - Is your kernel compatible?");
         return NO_INIT;
+    }
 }
 
 AudioHardware::AudioStreamOutTegra::~AudioStreamOutTegra()
@@ -860,6 +872,8 @@ AudioHardware::AudioStreamOutTegra::~AudioStreamOutTegra()
     if (mBtFd >= 0) ::close(mBtFd);
     if (mBtFdCtl >= 0) ::close(mBtFdCtl);
     if (mBtFdIoCtl >= 0) ::close(mBtFdIoCtl);
+    if (mSpdifFd >= 0) ::close(mSpdifFd);
+    if (mSpdifFdCtl >= 0) ::close(mSpdifFdCtl);
 }
 
 ssize_t AudioHardware::AudioStreamOutTegra::write(const void* buffer, size_t bytes)
@@ -895,12 +909,26 @@ ssize_t AudioHardware::AudioStreamOutTegra::write(const void* buffer, size_t byt
         // When dual routing to CPCAP and Bluetooth, piggyback CPCAP audio now,
         // and then down convert for the BT.
         // CPCAP is always 44.1 in this case.
+        // This also works in the three-way routing case.
         Mutex::Autolock lock2(mFdLock);
         ::write(outFd, buffer, outsize);
+    }
+    if (mIsSpkrEnabled && mIsSpdifEnabled) {
+        // When dual routing to Speaker and HDMI, piggyback HDMI now, since it
+        // has no mic we'll leave the rest of the acoustic processing for the
+        // CPCAP hardware path.
+        // This also works in the three-way routing case, except the acoustic
+        // tuning will be done on Bluetooth, since it has the exclusive mic amd
+        // it also needs the sample rate conversion
+        Mutex::Autolock lock2(mFdLock);
+        ::write(mSpdifFd, buffer, outsize);
     }
     if (mIsBtEnabled) {
         outFd = mBtFd;
         outFdCtl = mBtFdCtl;
+    } else if (mIsSpdifEnabled && !mIsSpkrEnabled) {
+        outFd = mSpdifFd;
+        outFdCtl = mSpdifFdCtl;
     }
 
 #ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
@@ -1037,6 +1065,8 @@ void AudioHardware::AudioStreamOutTegra::flush()
        LOGE("could not flush playback: %s\n", strerror(errno));
     if (::ioctl(mBtFdCtl, TEGRA_AUDIO_OUT_FLUSH) < 0)
        LOGE("could not flush bluetooth: %s\n", strerror(errno));
+    if (::ioctl(mSpdifFdCtl, TEGRA_AUDIO_OUT_FLUSH) < 0)
+       LOGE("could not flush spdif: %s\n", strerror(errno));
     LOGD("AudioStreamOutTegra::flush() returns");
 }
 
