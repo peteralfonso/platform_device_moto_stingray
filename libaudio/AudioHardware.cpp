@@ -848,15 +848,14 @@ status_t AudioHardware::AudioStreamOutTegra::set(
     if (pRate) *pRate = lRate;
 
     mDevices = devices;
-    if (mFd >= 0 &&
-        mFdCtl >= 0 &&
-        mBtFd >= 0 &&
-        mBtFdCtl >= 0 &&
-        mBtFdIoCtl >= 0 &&
-        mSpdifFd >= 0 &&
-        mSpdifFdCtl >= 0)
+    if (mFd >= 0 && mFdCtl >= 0 &&
+                mBtFd >= 0 &&
+                mBtFdCtl >= 0 &&
+                mBtFdIoCtl >= 0) {
+        if (mSpdifFd < 0 || mSpdifFdCtl < 0)
+            LOGW("s/pdif driver not present");
         return NO_ERROR;
-    else {
+    } else {
         LOGE("Problem opening device files - Is your kernel compatible?");
         return NO_INIT;
     }
