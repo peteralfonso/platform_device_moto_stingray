@@ -8,6 +8,7 @@
 /dev/dw9714l    0660    media   camera
 /dev/soc2030	0660	media	camera
 /dev/audio*	0660	system	audio
+/dev/spdif*	0660	system	audio
 /dev/tegra_camera	0660	media	camera
 /dev/ttyUSB0	0640	radio	radio
 /dev/ttyUSB1	0640	radio	radio
