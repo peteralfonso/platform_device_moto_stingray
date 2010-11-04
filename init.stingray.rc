@@ -149,7 +149,7 @@ service bugreport /system/bin/bugtogo.sh
     keycodes 115 114
 
 service hciattach /system/bin/brcm_patchram_plus --enable_hci \
-    --baudrate 3000000 --patchram /etc/firmware/bcm4329.hcd /dev/ttyHS2
+    --baudrate 3000000 --patchram /etc/firmware/bcm4329.hcd --pcm_role slave /dev/ttyHS2
     user bluetooth
     group bluetooth net_bt_admin
     disabled

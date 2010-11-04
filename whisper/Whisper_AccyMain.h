@@ -78,8 +78,8 @@ enum    {
         NO_DOCK,
         DESK_DOCK,
         CAR_DOCK,
-        MOBILE_DOCK,
-        HD_DOCK
+        LE_DOCK,
+        HE_DOCK
         };
         
 enum    {

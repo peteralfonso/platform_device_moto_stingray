@@ -111,7 +111,7 @@ static void readSwitchState(int);
 static int  accySpawnThread();
 static void createOutput(uint8_t *inp, char *out, int bytes);
 static void waitForUevents();
-static void doIoctl(int cmd, unsigned int data, char *dev_id);
+static void doIoctl(int cmd, unsigned int data, char *dev_id, char *dev_prop);
 
 /*==================================================================================================
                                           LOCAL VARIABLES
@@ -292,6 +292,7 @@ static void accyProtDaemon(void *arg) {
     struct timeval tv;
     uint8_t statusFuse[8], FSNo[8], RomSN[8], RomRNo[8];
     char devInfo[32];
+    char devProp[8];
 
     threadId = pthread_self();
     status = pthread_getschedparam(threadId, &currentPolicy, &sched);
@@ -329,7 +330,7 @@ static void accyProtDaemon(void *arg) {
         }
 
         if (globalProtocol == PROTOCOL_UART) {
-            doIoctl(CPCAP_IOCTL_ACCY_WHISPER, CPCAP_WHISPER_ENABLE_UART, NULL);
+            doIoctl(CPCAP_IOCTL_ACCY_WHISPER, CPCAP_WHISPER_ENABLE_UART, NULL, NULL);
         }
 
         wakeLock = acquire_wake_lock(PARTIAL_WAKE_LOCK, wakeLockString);
@@ -487,37 +488,37 @@ static void accyProtDaemon(void *arg) {
             if (globalState == GLOBAL_STATE_DOCKED_IDSUCC) {
                 dockType = NO_DOCK;
                 if (statusFuse[1] == 0x0A && statusFuse[2] == 0xC0 && statusFuse[3] == 0x00) {
-                    dockType = DESK_DOCK;
-                    DBG_TRACE("It's a Desk Dock");
+                    dockType = LE_DOCK;
+                    DBG_TRACE("It's a Low End Dock");
                 }
                 else if (statusFuse[1] == 0x12 && statusFuse[2] == 0xC0 && statusFuse[3] == 0x00) {
                     dockType = CAR_DOCK;
                     DBG_TRACE("It's a Car Dock");
                 }
                 else if (statusFuse[1] == 0x1A && statusFuse[2] == 0x80 && statusFuse[3] == 0x00) {
-                    dockType = HD_DOCK;
-                    DBG_TRACE("It's a HD Dock");
+                    dockType = HE_DOCK;
+                    DBG_TRACE("It's a High End Dock");
                 }
-                else if (statusFuse[1] == 0x22 && statusFuse[2] == 0x00 && statusFuse[3] == 0x00) {
-                    dockType = MOBILE_DOCK;
-                    DBG_TRACE("It's a Mobile Dock");
-                }
-                
+
                 /* Format the output */
                 createOutput(&FSNo[1],&devInfo[0], 4);
                 createOutput(&RomSN[3],&devInfo[8], 2);
                 devInfo[12] = 0;
 
+                createOutput(&statusFuse[1], &devProp[0], 3);
+                devProp[6] = 0;
+
                 DBG_TRACE("ID SUCCESS %s", devInfo);
                 if(dockType == NO_DOCK)
                     DBG_TRACE("UNKNOWN STATUS FUSES <%d><%d><%d>\n", statusFuse[1], statusFuse[2], statusFuse[3]);
-           
+
                 tryComm = 0;
                 dockDetails = ID_SUCCESS;
                 dockDetails |= (dockType << DOCK_TYPE_OFFSET);
-                doIoctl(CPCAP_IOCTL_ACCY_WHISPER, dockDetails, devInfo);
+                doIoctl(CPCAP_IOCTL_ACCY_WHISPER, dockDetails, devInfo, devProp);
                 globalState = GLOBAL_STATE_DOCKED_IDSUCC;
                 memset(devInfo,0x00,sizeof(devInfo));
+                memset(devProp,0x00,sizeof(devProp));
             }
 
             /* if the global state is still docked, then increment the retry counter */
@@ -527,7 +528,7 @@ static void accyProtDaemon(void *arg) {
                     tryComm = 0;
 
                     dockDetails = 0; // set bit 0, for AUTH to be failure
-                    doIoctl(CPCAP_IOCTL_ACCY_WHISPER, dockDetails, NULL);
+                    doIoctl(CPCAP_IOCTL_ACCY_WHISPER, dockDetails, NULL, NULL);
 
                     globalState = GLOBAL_STATE_DOCKED_IDFAIL;
                 }
@@ -645,7 +646,7 @@ static int accyInit(void) {
 
 
 
-void doIoctl(int cmd, unsigned int data, char *dev_id) {
+void doIoctl(int cmd, unsigned int data, char *dev_id, char *dev_prop) {
     int i, status = -1;
     struct timespec ts;
     struct cpcap_whisper_request req;
@@ -654,6 +655,8 @@ void doIoctl(int cmd, unsigned int data, char *dev_id) {
     req.cmd = data;
     if(dev_id != NULL)
       strcpy(req.dock_id, dev_id);
+    if(dev_prop != NULL)
+      strcpy(req.dock_prop, dev_prop);
 
     for (i = 0; i < MAX_TRY_IOCTL; i++) {
         DBG_TRACE("ioctl cmd %d: %d,", cmd, data);
