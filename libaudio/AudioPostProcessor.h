@@ -51,6 +51,7 @@ private:
             void        initEcns(int rate, int bytes);
             void        stopEcns(void);
             void        ecnsLogToFile(int bytes);
+            int         read_dock_prop(char const *path);
 
         // CTO Multimedia Audio Processing storage buffers
             int16_t     mPcmLoggingBuf[((CTO_AUDIO_MM_DATALOGGING_BUFFER_BLOCK_BYTESIZE)/2)];

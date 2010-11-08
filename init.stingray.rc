@@ -90,6 +90,10 @@ on boot
     chown radio radio /dev/ttyHS0
     chmod 640 /dev/ttyHS0
 
+# Whisper audio settings
+    chown media media /sys/class/switch/dock/dock_prop
+    chmod 660 /sys/class/switch/dock/dock_prop
+
 # Modem Control
     chown radio radio /sys/class/radio/mdm6600/command
     chmod 220 /sys/class/radio/mdm6600/command

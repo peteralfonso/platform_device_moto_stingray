@@ -487,7 +487,7 @@ static void accyProtDaemon(void *arg) {
 
             if (globalState == GLOBAL_STATE_DOCKED_IDSUCC) {
                 dockType = NO_DOCK;
-                if (statusFuse[1] == 0x0A && statusFuse[2] == 0xC0 && statusFuse[3] == 0x00) {
+                if (statusFuse[1] == 0x0A && statusFuse[2] == 0xC0) {
                     dockType = LE_DOCK;
                     DBG_TRACE("It's a Low End Dock");
                 }
