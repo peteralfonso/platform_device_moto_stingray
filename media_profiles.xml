@@ -472,9 +472,14 @@
   <AudioEncoderCap name="aac" enabled="true"
       minBitRate="8000" maxBitRate="320000"
       minSampleRate="8000" maxSampleRate="48000"
-      minChannels="1" maxChannels="2" />
+      minChannels="1" maxChannels="1" />
 
-    <AudioEncoderCap name="amrnb" enabled="true"
+  <AudioEncoderCap name="amrwb" enabled="true"
+        minBitRate="6600" maxBitRate="23050"
+        minSampleRate="16000" maxSampleRate="16000"
+        minChannels="1" maxChannels="1" />
+
+  <AudioEncoderCap name="amrnb" enabled="true"
       minBitRate="4750" maxBitRate="12200"
       minSampleRate="8000" maxSampleRate="8000"
       minChannels="1" maxChannels="1" />
