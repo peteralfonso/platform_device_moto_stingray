@@ -260,6 +260,7 @@ private:
 #ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
                 AudioStreamSrc mSrc;
 #endif
+                void        reopenReconfigDriver();
     };
 
             static const uint32_t inputSamplingRates[];

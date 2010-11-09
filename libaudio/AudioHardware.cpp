@@ -353,6 +353,8 @@ String8 AudioHardware::getParameters(const String8& keys)
 
 size_t AudioHardware::getInputBufferSize(uint32_t sampleRate, int format, int channelCount)
 {
+    size_t bufsize;
+
     if (format != AudioSystem::PCM_16_BIT) {
         LOGW("getInputBufferSize bad format: %d", format);
         return 0;
@@ -363,7 +365,14 @@ size_t AudioHardware::getInputBufferSize(uint32_t sampleRate, int format, int ch
     }
 
     // Return 20 msec input buffer size.
-    return sampleRate * channelCount / 50;
+    bufsize = sampleRate * sizeof(int16_t) * channelCount / 50;
+    if (bufsize & 0x7) {
+       // Not divisible by 8.
+       bufsize +=8;
+       bufsize &= ~0x7;
+    }
+    LOGD("%s: returns %d for rate %d", __FUNCTION__, bufsize, sampleRate);
+    return bufsize;
 }
 
 //setVoiceVolume is only useful for setting sidetone gains with a baseband
@@ -570,10 +579,10 @@ status_t AudioHardware::doRouting_l()
         input->setDriver(micInDevice?true:false,
                          btScoInDevice?true:false);
     //TODO: EC/NS decision that doesn't isn't so presumptuous.
-    bool ecnsEnabled = mCurOutDevice.on && mCurInDevice.on && // mMode == AudioSystem::MODE_IN_CALL &&
-                       (getActiveInputRate() == 8000 || getActiveInputRate() == 16000);
+    bool ecnsEnabled = mCurOutDevice.on && mCurInDevice.on;
 
 #ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
+    int ecnsRate = getActiveInputRate() < 16000? 8000 : 16000;
     mAudioPP.setAudioDev(&mCurOutDevice, &mCurInDevice,
                          btScoOutDevices||btScoInDevice, mBluetoothNrec,
                          spdifOutDevices?true:false);
@@ -585,7 +594,7 @@ status_t AudioHardware::doRouting_l()
         LOGE("could not read output rate: %s\n",
                    strerror(errno));
     if (ecnsEnabled) {
-        mHwInRate = getActiveInputRate();
+        mHwInRate = ecnsRate;
         mHwOutRate = mHwInRate;
         LOGD("EC/NS active, requests rate as %d for in/out", mHwInRate);
     }
@@ -628,7 +637,7 @@ status_t AudioHardware::doRouting_l()
 #endif
 
     // Since HW path may have changed, set the hardware gains.
-    if (mMode == AudioSystem::MODE_IN_CALL)
+    if (ecnsEnabled)
         setVolume_l(mMasterVol, AUDIO_HW_GAIN_USECASE_VOICE);
     else
         setVolume_l(mMasterVol, AUDIO_HW_GAIN_USECASE_MM);
@@ -746,6 +755,18 @@ void AudioHardware::AudioStreamSrc::init(int inRate, int outRate)
             outRate == 32000  ? SRC_08_32 :
             outRate == 44100  ? SRC_08_44 :
             outRate == 48000  ? SRC_08_48 :
+            /* Invalid */ MODE_END
+        );
+    } else if (inRate == 16000) {
+        srcMode = (
+            outRate == 8000   ? SRC_16_08 :
+            outRate == 11025  ? SRC_16_11 :
+            outRate == 12000  ? SRC_16_12 :
+            outRate == 22050  ? SRC_16_22 :
+            outRate == 24000  ? SRC_16_24 :
+            outRate == 32000  ? SRC_16_32 :
+            outRate == 44100  ? SRC_16_44 :
+            outRate == 48000  ? SRC_16_48 :
             /* Invalid */ MODE_END
         );
     }
@@ -1238,13 +1259,8 @@ status_t AudioHardware::AudioStreamInTegra::set(
     mFormat = AUDIO_HW_IN_FORMAT;
     mChannels = *pChannels;
     mSampleRate = *pRate;
-    // 20 millisecond buffers default
-    mBufferSize = mSampleRate * sizeof(int16_t) * AudioSystem::popCount(mChannels) / 50;
-    if (mBufferSize & 0x7) {
-       // Not divisible by 8.
-       mBufferSize +=8;
-       mBufferSize &= ~0x7;
-    }
+    mBufferSize = mHardware->getInputBufferSize(mSampleRate, AudioSystem::PCM_16_BIT,
+                                                AudioSystem::popCount(mChannels));
     mNeedsOnline = true;
     return NO_ERROR;
 }
@@ -1321,9 +1337,21 @@ ssize_t AudioHardware::AudioStreamInTegra::read(void* buffer, ssize_t bytes)
             LOGE("read: buf size problem. %d>%d",(int)bytes,sizeof(mInScratch));
             return -1;
         }
+        // Check if we need to init the rate converter
+        if (!mSrc.initted() ||
+             mSrc.inRate() != driverRate ||
+             mSrc.outRate() != (int)mSampleRate) {
+            LOGI ("%s: Upconvert started from %d to %d", __FUNCTION__,
+                   driverRate, mSampleRate);
+            mSrc.init(driverRate, mSampleRate);
+            if (!mSrc.initted())
+                return -1;
+            reopenReconfigDriver();
+        }
     } else {
         hwReadBytes = bytes;
         inbuf = (int16_t *)buffer;
+        mSrc.deinit();
     }
     ret = ::read(mFd, inbuf, hwReadBytes/2);
     if (ret >= 0)
@@ -1343,22 +1371,12 @@ ssize_t AudioHardware::AudioStreamInTegra::read(void* buffer, ssize_t bytes)
 
 #ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
     if (ret>0)
-        mHardware->mAudioPP.applyUplinkEcns(buffer, hwReadBytes, driverRate);
+        mHardware->mAudioPP.applyUplinkEcns(inbuf, hwReadBytes, driverRate);
     else if (mHardware->mAudioPP.isEcnsEnabled()) {
         LOGE("Read is failing, disable EC/NS until something changes");
         mHardware->mAudioPP.enableEcns(false);
     }
     if (ret>0 && srcReqd) {
-        // Sample Rate Conversion requrired.
-        if (!mSrc.initted() ||
-             mSrc.inRate() != driverRate ||
-             mSrc.outRate() != (int)mSampleRate) {
-            LOGI ("%s: Upconvert started from %d to %d", __FUNCTION__,
-                   driverRate, mSampleRate);
-            mSrc.init(driverRate, mSampleRate);
-            if (!mSrc.initted())
-                return -1;
-        }
         mSrc.mIoData.input_ptrL = (SRC_INT16_T *) (inbuf);
         mSrc.mIoData.input_count = hwReadBytes / sizeof(SRC_INT16_T);
         mSrc.mIoData.input_ptrR = 0;
@@ -1370,8 +1388,6 @@ ssize_t AudioHardware::AudioStreamInTegra::read(void* buffer, ssize_t bytes)
             LOGE("read: buffer overrun");
         }
     }
-    else
-        mSrc.deinit();
 #endif
     LOGV("%s returns %d.",__FUNCTION__, (int)ret);
     return ret;
@@ -1406,20 +1422,15 @@ status_t AudioHardware::AudioStreamInTegra::online()
         // Don't no-op this function.
         mNeedsOnline = false;
     } else {
-        // If the mic driver is used and the device is on, return
         if (mIsMicEnabled && mHardware->mCurInDevice.on) {
             return NO_ERROR;
         }
-        // If the mic is off and but we're already conifgured, return
         if (!mIsMicEnabled && !mHardware->mCurInDevice.on)
             return NO_ERROR;
     }
     LOGV("%s", __FUNCTION__);
 
-    if (mFd == -1)
-        mFd = ::open("/dev/audio1_in", O_RDWR);
-    if (mFdCtl == -1)
-        mFdCtl = ::open("/dev/audio1_in_ctl", O_RDWR);
+    reopenReconfigDriver();
 
     // configuration
     struct tegra_audio_in_config config;
@@ -1443,6 +1454,29 @@ status_t AudioHardware::AudioStreamInTegra::online()
         }
     }
 
+    mState = AUDIO_INPUT_OPENED;
+
+    // Use standby to flush the driver.  mHardware->mLock should already be held
+    mHardware->doStandby(mFdCtl, false, true);
+    if (mIsMicEnabled)
+        return mHardware->doStandby(mFdCtl, false, false);
+    else
+        return NO_ERROR;
+}
+
+void AudioHardware::AudioStreamInTegra::reopenReconfigDriver()
+{
+    // Need to "restart" the driver when changing the buffer configuration.
+    if (mFdCtl != -1 && ::ioctl(mFdCtl, TEGRA_AUDIO_IN_STOP) < 0)
+        LOGE("%s: could not stop recording: %s\n", __FUNCTION__, strerror(errno));
+    if (mFd != -1)
+        ::close(mFd);
+    if (mFdCtl != -1)
+        ::close(mFdCtl);
+
+    mFd = ::open("/dev/audio1_in", O_RDWR);
+    mFdCtl = ::open("/dev/audio1_in_ctl", O_RDWR);
+
     // Configure DMA to be between half of the mBufferSize and the whole buffer size.
     // Design decision:
     // Each buffer is 20 msec.  The 8 KHz example is below:
@@ -1453,7 +1487,8 @@ status_t AudioHardware::AudioStreamInTegra::online()
     // Max jitter is 12 msec at buffer 1 (expected data after 20 msec, received at 32).
     //
     struct tegra_audio_buf_config buf_config;
-    int size_temp = mBufferSize;
+    int size_temp = mHardware->getInputBufferSize(mHardware->mHwInRate, AudioSystem::PCM_16_BIT,
+                                                  AudioSystem::popCount(mChannels));
     buf_config.size = 0;
     do {
        buf_config.size++;
@@ -1463,18 +1498,8 @@ status_t AudioHardware::AudioStreamInTegra::online()
     buf_config.chunk = buf_config.size-1;
     buf_config.threshold = buf_config.size-2;
 
-    if (::ioctl(mFdCtl, TEGRA_AUDIO_IN_SET_BUF_CONFIG, &buf_config)) {
-       LOGE("Error setting buffer sizes: %s", strerror(errno));
-    }
-
-    mState = AUDIO_INPUT_OPENED;
-
-    // Use standby to flush the driver.  mHardware->mLock should already be held
-    mHardware->doStandby(mFdCtl, false, true);
-    if (mIsMicEnabled)
-        return mHardware->doStandby(mFdCtl, false, false);
-    else
-        return NO_ERROR;
+    if (::ioctl(mFdCtl, TEGRA_AUDIO_IN_SET_BUF_CONFIG, &buf_config))
+       LOGE("%s: Error setting buffer sizes: %s", __FUNCTION__, strerror(errno));
 }
 
 status_t AudioHardware::AudioStreamInTegra::dump(int fd, const Vector<String16>& args)
