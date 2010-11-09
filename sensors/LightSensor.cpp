@@ -46,12 +46,22 @@ LightSensor::~LightSensor() {
 }
 
 int LightSensor::enable(int32_t, int en) {
+    int err;
     en = en ? 1 : 0;
-    if (en) {
-        // make sure to report an event immediately
-        mHasPendingEvent = true;
+    if(mEnabled != en) {
+        if (en) {
+            open_device();
+        }
+        err = ioctl(dev_fd, MAX9635_IOCTL_SET_ENABLE,&en);
+        err = err<0 ? -errno : 0;
+        LOGE_IF(err, "MAX9635_IOCTL_SET_ENABLE failed (%s)", strerror(-err));
+        if (!err) {
+            mEnabled = en;
+        }
+        if (!en) {
+            close_device();
+        }
     }
-    mEnabled = en;
     return 0;
 }
 
