@@ -53,6 +53,8 @@ PRODUCT_PACKAGES := \
     librs_jni \
     make_ext4fs
 
+PRODUCT_CHARACTERISTICS := tablet,nosdcard
+
 # we have enough storage space to hold precise GC data
 PRODUCT_TAGS += dalvik.gc.type-precise
 
