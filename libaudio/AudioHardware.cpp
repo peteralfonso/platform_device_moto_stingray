@@ -580,7 +580,7 @@ status_t AudioHardware::doRouting_l()
                          btScoInDevice?true:false);
     //TODO: EC/NS decision that doesn't isn't so presumptuous.
     bool ecnsEnabled = mCurOutDevice.on && mCurInDevice.on;
-
+    int oldInRate=mHwInRate, oldOutRate=mHwOutRate;
 #ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
     int ecnsRate = getActiveInputRate() < 16000? 8000 : 16000;
     mAudioPP.setAudioDev(&mCurOutDevice, &mCurInDevice,
@@ -588,17 +588,14 @@ status_t AudioHardware::doRouting_l()
                          spdifOutDevices?true:false);
     mAudioPP.enableEcns(ecnsEnabled);
     // Check input/output rates for HW.
-    int oldInRate=mHwInRate, oldOutRate=mHwOutRate;
-    int speakerOutRate = 0;
-    if (::ioctl(mCpcapCtlFd, CPCAP_AUDIO_OUT_GET_RATE, &speakerOutRate))
-        LOGE("could not read output rate: %s\n",
-                   strerror(errno));
     if (ecnsEnabled) {
         mHwInRate = ecnsRate;
         mHwOutRate = mHwInRate;
         LOGD("EC/NS active, requests rate as %d for in/out", mHwInRate);
     }
-    else {
+    else
+#endif
+    {
         mHwInRate = getActiveInputRate();
         if (mHwInRate == 0)
             mHwInRate = 44100;
@@ -610,6 +607,10 @@ status_t AudioHardware::doRouting_l()
         mHwInRate = 8000;
         LOGD("Bluetooth SCO active, rate forced to 8K");
     }
+    int speakerOutRate = 0;
+    if (::ioctl(mCpcapCtlFd, CPCAP_AUDIO_OUT_GET_RATE, &speakerOutRate))
+        LOGE("could not read output rate: %s\n",
+                   strerror(errno));
     if (mHwOutRate != oldOutRate ||
         (speakerOutRate!=44100 && (btScoOutDevices||btScoInDevice))) {
         int speaker_rate = mHwOutRate;
@@ -634,7 +635,6 @@ status_t AudioHardware::doRouting_l()
         if (::ioctl(mCpcapCtlFd, CPCAP_AUDIO_IN_GET_RATE, &mHwInRate))
             LOGE("CPCAP driver error reading rates.");
     }
-#endif
 
     // Since HW path may have changed, set the hardware gains.
     if (ecnsEnabled)
@@ -1328,6 +1328,8 @@ ssize_t AudioHardware::AudioStreamInTegra::read(void* buffer, ssize_t bytes)
     mHardware->mLock.unlock();
 
     srcReqd = (driverRate != (int)mSampleRate);
+
+#ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
     if (srcReqd) {
         hwReadBytes = ( bytes*driverRate/mSampleRate ) & (~0x7);
         LOGV("Running capture SRC.  HW=%d bytes at %d, Flinger=%d bytes at %d",
@@ -1353,6 +1355,14 @@ ssize_t AudioHardware::AudioStreamInTegra::read(void* buffer, ssize_t bytes)
         inbuf = (int16_t *)buffer;
         mSrc.deinit();
     }
+#else
+    if (srcReqd) {
+        LOGE("%s: sample rate mismatch HAL %d, driver %d",
+             __FUNCTION__, mSampleRate, driverRate);
+        return -1;
+    }
+#endif
+
     ret = ::read(mFd, inbuf, hwReadBytes/2);
     if (ret >= 0)
         ret2 = ::read(mFd, (char *)inbuf+hwReadBytes/2, hwReadBytes/2);
