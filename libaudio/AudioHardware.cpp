@@ -1224,6 +1224,7 @@ status_t AudioHardware::AudioStreamInTegra::set(
 {
     Mutex::Autolock lock(mLock);
     status_t status = BAD_VALUE;
+    mHardware = hw;
     if (pFormat == 0)
         return status;
     if (*pFormat != AUDIO_HW_IN_FORMAT) {
@@ -1253,7 +1254,6 @@ status_t AudioHardware::AudioStreamInTegra::set(
     }
 
     LOGV("AudioStreamInTegra::set(%d, %d, %u)", *pFormat, *pChannels, *pRate);
-    mHardware = hw;
 
     mDevices = devices;
     mFormat = AUDIO_HW_IN_FORMAT;
