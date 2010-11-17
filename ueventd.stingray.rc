@@ -16,3 +16,4 @@
 /dev/tegra_avp	0660	media	media
 /dev/tegra_rpc	0660	media	media
 /dev/tegra_sema	0660	media	media
+/dev/tegra-crypto	0660	system	system
