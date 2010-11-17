@@ -402,7 +402,7 @@ status_t AudioHardware::setMasterVolume(float v)
     LOGV("Set master vol to %f.\n", v);
     mMasterVol = v;
     Mutex::Autolock lock(mLock);
-    if (mMode == AudioSystem::MODE_IN_CALL)
+    if (isInCall())
         setVolume_l(v, AUDIO_HW_GAIN_USECASE_VOICE);
     else
         setVolume_l(v, AUDIO_HW_GAIN_USECASE_MM);
@@ -648,7 +648,7 @@ status_t AudioHardware::doRouting_l()
 status_t AudioHardware::checkMicMute()
 {
     Mutex::Autolock lock(mLock);
-    if (mMode != AudioSystem::MODE_IN_CALL) {
+    if (!isInCall()) {
         setMicMute_nosync(true);
     }
 
