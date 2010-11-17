@@ -1,11 +1,6 @@
 LOCAL_PATH := $(call my-dir)
 include $(CLEAR_VARS)
 
-LOCAL_SRC_FILES := stingray-keypad.kcm
-include $(BUILD_KEY_CHAR_MAP)
-
-include $(CLEAR_VARS)
-
 ifeq ($(TARGET_PREBUILT_KERNEL),)
 TARGET_PREBUILT_KERNEL := $(LOCAL_PATH)/kernel
 endif
