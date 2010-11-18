@@ -56,7 +56,8 @@ LOCAL_STATIC_LIBRARIES += \
     libCortexA9_se-r \
     libCortexA9_motovoice-r \
     libCortexA9_ecns-r \
-    libsamplerateconverter
+    libsamplerateconverter \
+    libCortexA9_anm-r
 
 LOCAL_CFLAGS += -DUSE_PROPRIETARY_AUDIO_EXTENSIONS
 LOCAL_C_INCLUDES += vendor/moto/stingray/motomm/ghdr

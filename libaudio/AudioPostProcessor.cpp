@@ -285,7 +285,7 @@ int AudioPostProcessor::writeDownlinkEcns(int fd, void * buffer, bool stereo,
     if (mEcnsEnabled && !mEcnsRunning) {
         long usecs = 20*1000;
         // Give the read thread a chance to catch up.
-        LOGD("%s: delay %d msecs for ec/ns to start",__FUNCTION__, (int)(usecs/1000));
+        LOGV("%s: delay %d msecs for ec/ns to start",__FUNCTION__, (int)(usecs/1000));
         mEcnsBufLock.unlock();
         usleep(usecs);
         mEcnsBufLock.lock();
@@ -341,6 +341,23 @@ int AudioPostProcessor::applyUplinkEcns(void * buffer, int bytes, int rate)
     if (!mEcnsRunning) {
         LOGE("EC/NS failed to init, read returns.");
         return -1;
+    }
+
+    if (onetime) {
+        // Pad a half-buffer to the start of the call, to avoid some starvation
+        // due to scheduling jitter.
+        int16_t *zerobuf;
+        size_t zerosize = (bytes/2*(mEcnsOutStereo?2:1))&(~0x3);
+
+        onetime = false;
+        zerobuf = (int16_t *) calloc(1, zerosize);
+        if ((mEcnsOutFd != -1) && zerobuf) {
+            LOGD("Prefill of output driver with %d bytes", zerosize);
+            mEcnsOutFdLockp->lock();
+            ::write(mEcnsOutFd, zerobuf, zerosize);
+            mEcnsOutFdLockp->unlock();
+        }
+        free(zerobuf);
     }
 
     for (int i=0; mEcnsOutBuf==0 && i<1; i++) {
@@ -423,17 +440,13 @@ int AudioPostProcessor::applyUplinkEcns(void * buffer, int bytes, int rate)
 
     // Pad downlink with zeroes as last resort.  We have to process the UL speech.
     if (dl_buf_bytes < bytes) {
-        LOGW("%s:EC/NS Starved for downlink data. have %d need %d.",
+        LOGV("%s:EC/NS Starved for downlink data. have %d need %d.",
              __FUNCTION__,dl_buf_bytes, bytes);
         memset(&dl_buf[dl_buf_bytes/sizeof(int16_t)],
                0,
                bytes-dl_buf_bytes);
     }
 
-    if (onetime) {
-        onetime = false;
-        return bytes;
-    }
     // Do Echo Cancellation
     API_MOT_LOG_RESET(&mEcnsCtrl, &mMemBlocks);
     API_MOT_DOWNLINK(&mEcnsCtrl, &mMemBlocks, (int16*)dl_buf, (int16*)ul_buf, &(ul_gbuff2[0]));
