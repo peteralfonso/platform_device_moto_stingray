@@ -17,5 +17,5 @@
  */
 -->
 <resources>
-    <integer name="def_screen_off_timeout">120000</integer>
+    <integer name="def_screen_off_timeout">300000</integer>
 </resources>
