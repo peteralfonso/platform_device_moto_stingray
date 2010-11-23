@@ -579,7 +579,7 @@ status_t AudioHardware::doRouting_l()
         input->setDriver(micInDevice?true:false,
                          btScoInDevice?true:false);
     //TODO: EC/NS decision that doesn't isn't so presumptuous.
-    bool ecnsEnabled = mCurOutDevice.on && mCurInDevice.on;
+    bool ecnsEnabled = mCurOutDevice.on && mCurInDevice.on && getActiveInputRate();
     int oldInRate=mHwInRate, oldOutRate=mHwOutRate;
 #ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
     int ecnsRate = getActiveInputRate() < 16000? 8000 : 16000;
@@ -802,19 +802,6 @@ AudioHardware::AudioStreamOutTegra::AudioStreamOutTegra() :
     mBtFdIoCtl = ::open("/dev/audio1_ctl", O_RDWR);
     mSpdifFd = ::open("/dev/spdif_out", O_RDWR);
     mSpdifFdCtl = ::open("/dev/spdif_out_ctl", O_RDWR);
-
-    struct tegra_audio_buf_config buf_config;
-    // Allow a few buffers of data at 8K mono for playback to BT SCO
-    int tempsize = 8000*sizeof(int16_t) / 10;
-    buf_config.size = 0;
-    do {
-       buf_config.size++;
-       tempsize >>=1;
-    } while (tempsize);
-    buf_config.chunk = buf_config.size-1;
-    buf_config.threshold = buf_config.size-2;
-    if (::ioctl(mBtFdCtl, TEGRA_AUDIO_OUT_SET_BUF_CONFIG, &buf_config))
-        LOGE("Error setting buffer sizes: %s", strerror(errno));
 }
 
 // Called with mHardware->mLock held.
@@ -907,7 +894,6 @@ ssize_t AudioHardware::AudioStreamOutTegra::write(const void* buffer, size_t byt
 {
     // LOGD("AudioStreamOutTegra::write(%p, %u)", buffer, bytes);
     int status = NO_INIT;
-    struct tegra_audio_error_counts errors;
     ssize_t written = 0;
     const uint8_t* p = static_cast<const uint8_t*>(buffer);
     size_t outsize = bytes;
@@ -1065,13 +1051,6 @@ ssize_t AudioHardware::AudioStreamOutTegra::write(const void* buffer, size_t byt
     }
     if (written < 0)
         LOGE("Error writing %d bytes to output: %s", outsize, strerror(errno));
-    else {
-        if (::ioctl(outFdCtl, TEGRA_AUDIO_OUT_GET_ERROR_COUNT, &errors) < 0)
-            LOGE("Could not retrieve playback error count: %s\n", strerror(errno));
-        else if (errors.late_dma || errors.full_empty)
-            LOGV("Played %d bytes with %d late, %d underflow errors\n", (int)written,
-                 errors.late_dma, errors.full_empty);
-    }
 
     // Sample rate converter may be stashing a couple of bytes here or there,
     // so just report that all bytes were consumed. (it would be a bug not to.)
@@ -1124,6 +1103,7 @@ status_t AudioHardware::AudioStreamOutTegra::standby()
     mHardware->mAudioPP.writeDownlinkEcns(-1,0,false,0,&mFdLock);
 #endif
     status = mHardware->doStandby(mFdCtl, true, true); // output, standby
+    mIsBtEnabled = false;
     return status;
 }
 
@@ -1296,7 +1276,6 @@ ssize_t AudioHardware::AudioStreamInTegra::read(void* buffer, ssize_t bytes)
 {
     ssize_t ret;
     ssize_t ret2 = 0;
-    struct tegra_audio_error_counts errors;
     int driverRate;
     LOGV("AudioStreamInTegra::read(%p, %ld)", buffer, bytes);
     if (!mHardware) {
@@ -1372,12 +1351,6 @@ ssize_t AudioHardware::AudioStreamInTegra::read(void* buffer, ssize_t bytes)
         LOGE("Error reading from audio in: %s", strerror(errno));
     else
         ret += ret2;
-
-    if (::ioctl(mFdCtl, TEGRA_AUDIO_IN_GET_ERROR_COUNT, &errors) < 0)
-        LOGE("Could not retrieve recording error count: %s\n", strerror(errno));
-    else if (errors.late_dma || errors.full_empty)
-        LOGV("Recorded %d bytes with %d late, %d overflow errors\n", (int)ret,
-             errors.late_dma, errors.full_empty);
 
 #ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
     if (ret>0)
@@ -1486,30 +1459,6 @@ void AudioHardware::AudioStreamInTegra::reopenReconfigDriver()
 
     mFd = ::open("/dev/audio1_in", O_RDWR);
     mFdCtl = ::open("/dev/audio1_in_ctl", O_RDWR);
-
-    // Configure DMA to be between half of the mBufferSize and the whole buffer size.
-    // Design decision:
-    // Each buffer is 20 msec.  The 8 KHz example is below:
-    // With 512 byte / 32 msec DMA's, and capture buffers of 20 msec, I get:
-    // Max jitter is 28 msec at buffer 5 (expected data at 100 msec, received at 128).
-    //
-    // With 256 byte / 16 msec DMA's, and capture buffers of 20 msec, I get:
-    // Max jitter is 12 msec at buffer 1 (expected data after 20 msec, received at 32).
-    //
-    struct tegra_audio_buf_config buf_config;
-    int size_temp = mHardware->getInputBufferSize(mHardware->mHwInRate, AudioSystem::PCM_16_BIT,
-                                                  AudioSystem::popCount(mChannels));
-    buf_config.size = 0;
-    do {
-       buf_config.size++;
-       size_temp >>=1;
-    } while (size_temp);
-    buf_config.size--;
-    buf_config.chunk = buf_config.size-1;
-    buf_config.threshold = buf_config.size-2;
-
-    if (::ioctl(mFdCtl, TEGRA_AUDIO_IN_SET_BUF_CONFIG, &buf_config))
-       LOGE("%s: Error setting buffer sizes: %s", __FUNCTION__, strerror(errno));
 }
 
 status_t AudioHardware::AudioStreamInTegra::dump(int fd, const Vector<String16>& args)

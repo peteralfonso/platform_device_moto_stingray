@@ -84,7 +84,6 @@ main(int argc, char *argv[])
     const int bits_per_sample = 16;
     int sampling_rate = -1;
     int num_channels = -1;
-    struct tegra_audio_error_counts errors, errors_tot;
 
     struct tegra_audio_in_config cfg;
     struct wav_header hdr;
@@ -166,40 +165,23 @@ main(int argc, char *argv[])
         FAILIF(lseek(ofd, sizeof(struct wav_header), SEEK_SET) < 0,
                "seek error: %s\n", strerror(errno));
 
-    memset(&errors_tot, 0, sizeof(errors_tot));
     do {
         errno = 0;
         nr = read(ifd, buffer, sizeof(buffer));
         FAILIF(nr < 0, "input read error: %s\n", strerror(errno));
-
-        FAILIF(ioctl(ifd_c, TEGRA_AUDIO_IN_GET_ERROR_COUNT, &errors) < 0,
-               "Could not retrieve error count: %s\n", strerror(errno));
 
         if (!nr) {
             printf("done recording\n");
             break;
         }
 
-        if (!errors.late_dma && !errors.full_empty)
-            printf("in %d\n", nr);
-        else {
-            printf("in %d (%d late, %d overflow errors)\n", nr,
-                   errors.late_dma, errors.full_empty);
-            errors_tot.late_dma += errors.late_dma;
-            errors_tot.full_empty += errors.full_empty;
-        }
+        printf("in %d\n", nr);
 
         nw = write(ofd, buffer, nr);
         FAILIF(nw < 0, "Could not copy to output: %s\n", strerror(errno));
         FAILIF(nw != nr, "Mismatch nw = %d nr = %d\n", nw, nr);
         total += nw;
     } while (1);
-
-    FAILIF(ioctl(ifd_c, TEGRA_AUDIO_IN_GET_ERROR_COUNT, &errors) < 0,
-           "Could not retrieve error count: %s\n", strerror(errno));
-
-    printf("recorded with %d late, %d overflow errors\n",
-           errors_tot.late_dma, errors_tot.full_empty);
 
     if (wave) {
         printf("writing WAV header\n");

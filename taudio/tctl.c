@@ -70,8 +70,7 @@ main(int argc, char *argv[])
             record = atoi(optarg);
             break;
         default: /* '?' */
-            fprintf(stderr, "Usage: %s [-oN] name\n",
-                    argv[0]);
+            fprintf(stderr, "Unknown option\n");
             exit(EXIT_FAILURE);
         }
     }
@@ -157,7 +156,7 @@ main(int argc, char *argv[])
         printf("set input config\n");
 
         printf("opening audio input\n");
-        recfd = open("/dev/audio0_in_ctl", O_RDWR);
+        recfd = open("/dev/audio1_in_ctl", O_RDWR);
         FAILIF(recfd < 0, "could not open for recording: %s\n", strerror(errno));
 
         printf("getting audio-input config\n");
@@ -186,7 +185,7 @@ main(int argc, char *argv[])
 
     if (record >= 0) {
         printf("opening audio input\n");
-        int recfd = open("/dev/audio0_in_ctl", O_RDWR);
+        int recfd = open("/dev/audio1_in_ctl", O_RDWR);
         printf("done opening audio input\n");
         FAILIF(recfd < 0, "could not open for recording: %s\n", strerror(errno));
         if (record) {
