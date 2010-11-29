@@ -16,6 +16,7 @@
 
 //#define LOG_NDEBUG 0
 #define LOG_TAG "AudioPostProcessor"
+#include <fcntl.h>
 #include <utils/Log.h>
 #include "AudioHardware.h"
 #include "AudioPostProcessor.h"
@@ -31,8 +32,10 @@ extern uint16_t HC_CTO_AUDIO_MM_PARAMETER_TABLE[];
 
 #define MOT_LOG_DELIMITER_START  0xFEED
 #define MOT_LOG_DELIMITER_END    0xF00D
+#define BASIC_DOCK_PROP_VALUE    0
 
 #define ECNSLOGPATH "/data/ecns"
+#define DOCK_PROP_PATH "/sys/class/switch/dock/dock_prop"
 
 #ifndef ARRAY_SIZE
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof(a[0]))
@@ -69,12 +72,19 @@ AudioPostProcessor::~AudioPostProcessor()
 
 uint32_t AudioPostProcessor::convOutDevToCTO(uint32_t outDev)
 {
+    uint32_t dock_prop = 0;
     // Only loudspeaker and audio docks are currently in this table
     switch (outDev) {
        case CPCAP_AUDIO_OUT_SPEAKER:
            return CTO_AUDIO_MM_ACCY_LOUDSPEAKER;
-//     case CPCAP_AUDIO_OUT_EMU:  Not yet implemented, Basic Dock.
-//         return CTO_AUDIO_MM_ACCY_DOCK;
+       case CPCAP_AUDIO_OUT_ANLG_DOCK_HEADSET:
+           dock_prop = read_dock_prop(DOCK_PROP_PATH);
+           if ((dock_prop < 0) || (dock_prop == BASIC_DOCK_PROP_VALUE)) {
+               // Basic dock, or error getting the dock ID
+               return CTO_AUDIO_MM_ACCY_INVALID;
+	   }
+           else // speaker dock
+               return CTO_AUDIO_MM_ACCY_DOCK;
        default:
            return CTO_AUDIO_MM_ACCY_INVALID;
     }
@@ -132,6 +142,7 @@ void AudioPostProcessor::setAudioDev(struct cpcap_audio_stream *outDev,
                                      struct cpcap_audio_stream *inDev,
                                      bool is_bt, bool is_bt_ec, bool is_spdif)
 {
+    uint32_t dock_prop = 0;
     uint32_t mm_accy = convOutDevToCTO(outDev->id);
     Mutex::Autolock lock(mMmLock);
 
@@ -146,8 +157,15 @@ void AudioPostProcessor::setAudioDev(struct cpcap_audio_stream *outDev,
         mEcnsMode = CTO_AUDIO_USECASE_NB_HEADSET_WITH_HANDSET_MIC;
     else if (outDev->id==CPCAP_AUDIO_OUT_HEADSET)
         mEcnsMode = CTO_AUDIO_USECASE_NB_HEADSET;
-//    else if (outDev->id==CPCAP_AUDIO_OUT_EMU)  -- todo, check for speaker dock
-//        mEcnsmode = CTO_AUDIO_USECASE_NB_DEDICATED_DOCK;
+    else if (outDev->id==CPCAP_AUDIO_OUT_ANLG_DOCK_HEADSET) {
+        dock_prop = read_dock_prop(DOCK_PROP_PATH);
+        if ((dock_prop < 0) || (dock_prop == BASIC_DOCK_PROP_VALUE))
+            // Basic dock, or error getting the dock ID
+            mEcnsMode = CTO_AUDIO_USECASE_NB_ACCY_1;
+        else
+            // Speaker Dock
+            mEcnsMode = CTO_AUDIO_USECASE_NB_DEDICATED_DOCK;
+    }
     else
         mEcnsMode = CTO_AUDIO_USECASE_NB_SPKRPHONE;
 
@@ -519,6 +537,46 @@ void AudioPostProcessor::ecnsLogToFile(int bytes)
                 LOGE("EC/NS logging enabled, but file not open.");
             }
         }
+    }
+}
+
+int AudioPostProcessor::read_dock_prop(char const *path)
+{
+    int fd = -1;
+    const size_t SIZE = 7;
+    static int already_warned = -1;
+    char buffer[SIZE];
+    /* the docks come with a property id AC000 for basic docks
+       and AC002 for speaker docks, numbers might change, keeping
+       them for now.
+     */
+    unsigned long int basic_dock_prop = 0xAC000;
+    unsigned long int spkr_dock_prop;
+
+    buffer[SIZE - 1] = '\0';
+    fd = open(path, O_RDONLY);
+    if (fd >= 0) {
+        int amt = read(fd, buffer, SIZE-1);
+        if (amt != SIZE-1) {
+	    LOGE("Incomplete dock property read, cannot validate dock");
+	    return -1;
+        }
+        spkr_dock_prop = strtoul(buffer, NULL, 16);
+	if (spkr_dock_prop <= 0) {
+	    LOGE("dock property conversion error");
+	    return -EINVAL;
+        }
+        close(fd);
+        LOGV("buffer = %s, spkr_dock_prop = 0x%X", buffer, spkr_dock_prop);
+        spkr_dock_prop = spkr_dock_prop ^ basic_dock_prop;
+        LOGV("dock_prop returned = %d", spkr_dock_prop);
+        return spkr_dock_prop;
+    } else {
+        if (already_warned == -1) {
+            LOGE("read_dock_prop failed to open %s\n", path);
+            already_warned = 1;
+        }
+        return -errno;
     }
 }
 
