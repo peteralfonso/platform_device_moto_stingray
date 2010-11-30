@@ -13,12 +13,16 @@
 # limitations under the License.
 
 #
-# Input Device Calibration File for the Stingray touch screen.
+# Input Device Configuration File for the Stingray touch screen.
 #
 # These calibration values are derived from empirical measurements
 # and may not be appropriate for use with other touch screens.
-# Refer to the input device calibration documentation for more details.
+# Refer to the input device configuration documentation for more details.
 #
+
+# Basic Parameters
+touch.deviceType = touchScreen
+touch.orientationAware = 1
 
 # Touch Size
 touch.touchSize.calibration = pressure
