@@ -34,16 +34,16 @@
 
 #include <hardware/lights.h>
 
-#define	MANUAL		0
-#define	AUTOMATIC	1
-#define	MANUAL_SENSOR	2
+#define LIGHT_ATTENTION	1
+#define LIGHT_NOTIFY 	2
 
 /******************************************************************************/
 
 
+static struct light_state_t *g_notify;
+static struct light_state_t *g_attention;
+static pthread_once_t g_init = PTHREAD_ONCE_INIT;
 static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
-
-static int lcd_brightness_mode = -1;
 
 /**
  * device methods
@@ -89,17 +89,36 @@ static int write_string(char const *path, char const *value)
 	}
 }
 
+void init_globals(void)
+{
+	pthread_mutex_init(&g_lock, NULL);
+
+	g_attention = malloc(sizeof(struct light_state_t));
+	memset(g_attention, 0, sizeof(*g_attention));
+	g_notify = malloc(sizeof(struct light_state_t));
+	memset(g_notify, 0, sizeof(*g_notify));
+}
+
 static int rgb_to_brightness(struct light_state_t const *state)
 {
+	/* use max of the RGB components for brightness */
 	int color = state->color & 0x00ffffff;
-	return ((77 * ((color >> 16) & 0x00ff))
-		+ (150 * ((color >> 8) & 0x00ff)) +
-		(29 * (color & 0x00ff))) >> 8;
+	int red = (color >> 16) & 0x000000ff;
+	int green = (color >> 8) & 0x000000ff;
+	int blue = color & 0x000000ff;
+
+	int brightness = red;
+	if (green > brightness)
+		brightness = green;
+	if (blue > brightness)
+		brightness = blue;
+
+	return brightness;
 }
 
 static int
 set_light_backlight(struct light_device_t *dev,
-		    struct light_state_t const *state)
+			struct light_state_t const *state)
 {
 	int err = 0;
 	int brightness = rgb_to_brightness(state);
@@ -112,48 +131,93 @@ set_light_backlight(struct light_device_t *dev,
 }
 
 static int
-set_msg_indicator(struct light_device_t *dev, struct light_state_t const *state)
+set_notification_light(struct light_state_t const* state)
 {
-	int blink;
-	int onMS, offMS;
-	unsigned int brightness;
+	unsigned int brightness = rgb_to_brightness(state);
+	int blink = state->flashOnMS;
 
-	switch (state->flashMode) {
-	case LIGHT_FLASH_TIMED:
-		onMS = state->flashOnMS;
-		offMS = state->flashOffMS;
-		break;
-	case LIGHT_FLASH_NONE:
-	default:
-		onMS = 0;
-		offMS = 0;
-		break;
-	}
-
-#if 1
-	LOGD("set_notification colorRGB=%08X, onMS=%d, offMS=%d\n",
-	     state->color, onMS, offMS);
+#if 0
+	LOGD("set_notification_light colorRGB=%08X, onMS=%d, offMS=%d\n",
+			state->color, state->flashOnMS, state->flashOffMS);
 #endif
 
-	brightness = rgb_to_brightness(state);
+	write_int("/sys/class/leds/notification-led/brightness", brightness);
+	write_int("/sys/class/leds/notification-led/blink", blink);
 
-	if (onMS > 0 && offMS > 0)
-		blink = 1;
-	else
-		blink = 0;
+	return 0;
+}
 
-	pthread_mutex_lock(&g_lock);
+static void
+handle_notification_light_locked(int type)
+{
+	struct light_state_t *new_state = 0;
+	int attn_mode = 0;
 
-	if ( brightness == 0 ) {
-		write_int("/sys/class/leds/notification-led/brightness", brightness);
-		write_string("/sys/class/leds/notification-led/trigger", "timer");
-	} else {
-		write_int("/sys/class/leds/notification-led/brightness", brightness);
-		write_int("/sys/class/leds/notification-led/delay_on", blink);
+	if (g_attention->flashMode == LIGHT_FLASH_HARDWARE)
+		attn_mode = g_attention->flashOnMS;
+
+	switch (type) {
+		case LIGHT_ATTENTION: {
+			if (attn_mode == 0) {
+				/* go back to notify state */
+				new_state = g_notify;
+			} else {
+				new_state = g_attention;
+			}
+		break;
+		}
+		case LIGHT_NOTIFY: {
+			if (attn_mode != 0) {
+				/* attention takes priority over notify state */
+				new_state = g_attention;
+			} else {
+				new_state = g_notify;
+			}
+		break;
+		}
+	}
+	if (new_state == 0) {
+		LOGE("%s: unknown type (%d)\n", __func__, type);
+		return;
 	}
 
-	pthread_mutex_unlock(&g_lock);
+	set_notification_light(new_state);
+}
 
+static int
+set_light_notifications(struct light_device_t* dev,
+		struct light_state_t const* state)
+{
+	pthread_mutex_lock(&g_lock);
+
+	g_notify->color = state->color;
+	if (state->flashMode != LIGHT_FLASH_NONE) {
+		g_notify->flashMode = LIGHT_FLASH_HARDWARE;
+		g_notify->flashOnMS = state->flashOnMS;
+		g_notify->flashOffMS = state->flashOffMS;
+	} else {
+		g_notify->flashOnMS = 0;
+		g_notify->flashOffMS = 0;
+	}
+	handle_notification_light_locked(LIGHT_NOTIFY);
+
+	pthread_mutex_unlock(&g_lock);
+	return 0;
+}
+
+static int
+set_light_attention(struct light_device_t* dev,
+		struct light_state_t const* state)
+{
+	pthread_mutex_lock(&g_lock);
+
+	g_attention->flashMode = state->flashMode;
+	g_attention->flashOnMS = state->flashOnMS;
+	g_attention->color = state->color;
+	g_attention->flashOffMS = 0;
+	handle_notification_light_locked(LIGHT_ATTENTION);
+
+	pthread_mutex_unlock(&g_lock);
 	return 0;
 }
 
@@ -183,11 +247,13 @@ static int open_lights(const struct hw_module_t *module, char const *name,
 	if (0 == strcmp(LIGHT_ID_BACKLIGHT, name))
 		set_light = set_light_backlight;
 	else if (0 == strcmp(LIGHT_ID_NOTIFICATIONS, name))
-		set_light = set_msg_indicator;
+		set_light = set_light_notifications;
+	else if (0 == strcmp(LIGHT_ID_ATTENTION, name))
+		set_light = set_light_attention;
 	else
 		return -EINVAL;
 
-	pthread_mutex_init(&g_lock, NULL);
+	pthread_once(&g_init, init_globals);
 
 	struct light_device_t *dev = malloc(sizeof(struct light_device_t));
 	memset(dev, 0, sizeof(*dev));
