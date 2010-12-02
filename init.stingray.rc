@@ -53,10 +53,8 @@ on boot
 # light
     chown system system /sys/class/leds/notification-led/brightness
     chmod 660 /sys/class/leds/notification-led/brightness
-    chown system system /sys/class/leds/notification-led/trigger
-    chmod 660 /sys/class/leds/notification-led/trigger
-    chown system system /sys/class/leds/notification-led/delay_on
-    chmod 660 /sys/class/leds/notification-led/delay_on
+    chown system system /sys/class/leds/notification-led/blink
+    chmod 660 /sys/class/leds/notification-led/blink
 
     chmod 666 /dev/nvhost-ctrl
     chmod 666 /dev/nvhost-display
