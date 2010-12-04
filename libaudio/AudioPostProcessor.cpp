@@ -24,7 +24,6 @@
 #include "mot_acoustics.h"
 // hardware specific functions
 extern uint16_t HC_CTO_AUDIO_MM_PARAMETER_TABLE[];
-
 ///////////////////////////////////
 // Some logging #defines
 #define ECNS_LOG_ENABLE_OFFSET 1 // 2nd word of the configuration buffer
@@ -41,10 +40,18 @@ extern uint16_t HC_CTO_AUDIO_MM_PARAMETER_TABLE[];
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof(a[0]))
 #endif
 
+//#define DEBUG_TIMING
+#ifdef DEBUG_TIMING
+struct timeval mtv1, mtv2, mtv3, mtv4, mtv5, mtv6, mtv7, mtv8;
+#define GETTIMEOFDAY gettimeofday
+#else
+#define GETTIMEOFDAY(a,b)
+#endif
+
 namespace android {
 
 AudioPostProcessor::AudioPostProcessor() :
-    mEcnsScratchBuf(0), mEcnsDlBuf(0)
+    mEcnsScratchBuf(0), mLogNumPoints(0),  mEcnsDlBuf(0), mEcnsThread(0)
 {
     LOGD("%s",__FUNCTION__);
 
@@ -58,6 +65,7 @@ AudioPostProcessor::AudioPostProcessor() :
     mAudioMmEnvVar.accy = CTO_AUDIO_MM_ACCY_INVALID;
     mAudioMmEnvVar.sample_rate = CTO_AUDIO_MM_SAMPL_44100;
 
+    mEcnsThread = new EcnsThread();
     // Initial conditions for EC/NS
     stopEcns();
 }
@@ -66,13 +74,13 @@ AudioPostProcessor::~AudioPostProcessor()
 {
     if (mEcnsRunning) {
         LOGD("%s",__FUNCTION__);
-        stopEcns();
+        enableEcns(false);
     }
 }
 
 uint32_t AudioPostProcessor::convOutDevToCTO(uint32_t outDev)
 {
-    uint32_t dock_prop = 0;
+    int32_t dock_prop = 0;
     // Only loudspeaker and audio docks are currently in this table
     switch (outDev) {
        case CPCAP_AUDIO_OUT_SPEAKER:
@@ -131,18 +139,22 @@ void AudioPostProcessor::configMmAudio()
 
 void AudioPostProcessor::enableEcns(bool value)
 {
-    if(mEcnsEnabled!=value)
+    if (mEcnsEnabled!=value) {
         LOGD("enableEcns(%s)",value?"true":"false");
-    mEcnsEnabled = value;
-    if (!mEcnsEnabled)
-        stopEcns();
+        mEcnsEnabled = value;
+        if (value==false) {
+            mEcnsThread->requestExitAndWait();
+            stopEcns();
+            cleanupEcns();
+        }
+    }
 }
 
 void AudioPostProcessor::setAudioDev(struct cpcap_audio_stream *outDev,
                                      struct cpcap_audio_stream *inDev,
                                      bool is_bt, bool is_bt_ec, bool is_spdif)
 {
-    uint32_t dock_prop = 0;
+    int32_t dock_prop = 0;
     uint32_t mm_accy = convOutDevToCTO(outDev->id);
     Mutex::Autolock lock(mMmLock);
 
@@ -266,12 +278,19 @@ void AudioPostProcessor::initEcns(int rate, int bytes)
     API_MOT_SETUP(&mEcnsCtrl, &mMemBlocks);
     API_MOT_INIT(&mEcnsCtrl, &mMemBlocks);
 }
+
 void AudioPostProcessor::stopEcns (void)
 {
-    if (mEcnsRunning)
-        LOGD("%s",__FUNCTION__);
     AutoMutex lock(mEcnsBufLock);
-    mEcnsRunning = 0;
+    if (mEcnsRunning) {
+        LOGD("%s",__FUNCTION__);
+        mEcnsRunning = 0;
+    }
+}
+
+void AudioPostProcessor::cleanupEcns(void)
+{
+    AutoMutex lock(mEcnsBufLock);
     mEcnsRate = 0;
     if (mEcnsScratchBuf) {
         free(mEcnsScratchBuf);
@@ -280,11 +299,6 @@ void AudioPostProcessor::stopEcns (void)
     mEcnsScratchBufSize = 0;
     mEcnsOutFd = -1;
 
-    for (int i=0;i<15;i++) {
-        if (mLogFp[i])
-            fclose(mLogFp[i]);
-        mLogFp[i]=0;
-    }
     if (mEcnsDlBuf) {
        free(mEcnsDlBuf);
        mEcnsDlBuf = 0;
@@ -292,9 +306,12 @@ void AudioPostProcessor::stopEcns (void)
     mEcnsDlBufSize = 0;
     // In case write() is blocked, set it free.
     mEcnsBufCond.signal();
+
+    ecnsLogToFile();
 }
 
-// Returns: Bytes written (actually "to-be-written" by read thread).
+
+// Returns: Bytes written (actually "to-be-written" by EC/NS thread).
 int AudioPostProcessor::writeDownlinkEcns(int fd, void * buffer, bool stereo,
                                           int bytes, Mutex *fdLock)
 {
@@ -329,6 +346,19 @@ int AudioPostProcessor::writeDownlinkEcns(int fd, void * buffer, bool stereo,
     return written;
 }
 
+// Returns: Bytes read.
+int AudioPostProcessor::read(int fd, void * buffer, int bytes, int rate)
+{
+    if (mEcnsEnabled) {
+        return mEcnsThread->readData(fd, buffer, bytes, rate, this);
+    }
+    ssize_t ret;
+    ret = ::read(fd, buffer, bytes);
+    if (ret < 0)
+        LOGE("Error reading from audio in: %s", strerror(errno));
+    return (int)ret;
+}
+
 // Returns: Bytes processed.
 int AudioPostProcessor::applyUplinkEcns(void * buffer, int bytes, int rate)
 {
@@ -359,28 +389,6 @@ int AudioPostProcessor::applyUplinkEcns(void * buffer, int bytes, int rate)
     if (!mEcnsRunning) {
         LOGE("EC/NS failed to init, read returns.");
         return -1;
-    }
-
-    if (onetime) {
-        // Pad a half-buffer to the start of the call, to avoid some starvation
-        // due to scheduling jitter.
-        int16_t *zerobuf;
-        size_t zerosize = (bytes/2*(mEcnsOutStereo?2:1))&(~0x3);
-
-        onetime = false;
-        zerobuf = (int16_t *) calloc(1, zerosize);
-        if ((mEcnsOutFd != -1) && zerobuf) {
-            LOGD("Prefill of output driver with %d bytes", zerosize);
-            mEcnsOutFdLockp->lock();
-            ::write(mEcnsOutFd, zerobuf, zerosize);
-            mEcnsOutFdLockp->unlock();
-        }
-        free(zerobuf);
-    }
-
-    for (int i=0; mEcnsOutBuf==0 && i<1; i++) {
-        // Try to wait a bit for downlink speech to come.
-        usleep(5000);
     }
 
     mEcnsBufLock.lock();
@@ -466,78 +474,103 @@ int AudioPostProcessor::applyUplinkEcns(void * buffer, int bytes, int rate)
     }
 
     // Do Echo Cancellation
+    GETTIMEOFDAY(&mtv5, NULL);
     API_MOT_LOG_RESET(&mEcnsCtrl, &mMemBlocks);
     API_MOT_DOWNLINK(&mEcnsCtrl, &mMemBlocks, (int16*)dl_buf, (int16*)ul_buf, &(ul_gbuff2[0]));
     API_MOT_UPLINK(&mEcnsCtrl, &mMemBlocks, (int16*)dl_buf, (int16*)ul_buf, &(ul_gbuff2[0]));
 
     // Playback the echo-cancelled speech to driver.
     // Include zero padding.  Our echo canceller needs a consistent path.
-    // TODO: Don't playback here, move it to the write() thread.  Also, make sure
-    // the output is really stereo before upconverting (i.e. SCO Audio)
-    if (dl_buf_bytes && mEcnsOutStereo) {
+    if (mEcnsOutStereo) {
         // Convert up to stereo, in place.
-        for (int i = dl_buf_bytes/2-1; i >= 0; i--) {
+        for (int i = bytes/2-1; i >= 0; i--) {
             dl_buf[i*2] = dl_buf[i];
             dl_buf[i*2+1] = dl_buf[i];
         }
         dl_buf_bytes *= 2;
     }
+    GETTIMEOFDAY(&mtv6, NULL);
     if (mEcnsOutFd != -1) {
         mEcnsOutFdLockp->lock();
-        ::write(mEcnsOutFd, dl_buf, bytes*(mEcnsOutStereo?2:1));
+        ::write(mEcnsOutFd, &dl_buf[0],
+                bytes*(mEcnsOutStereo?2:1));
         mEcnsOutFdLockp->unlock();
     }
-    // Do the CTO SuperAPI internal logging.  It can log various steps of uplink and downlink speech.
+    // Do the CTO SuperAPI internal logging.
     // (Do this after writing output to avoid adding latency.)
-    ecnsLogToFile(bytes);
+    GETTIMEOFDAY(&mtv7, NULL);
+    ecnsLogToRam(bytes);
     return bytes;
 }
-
-void AudioPostProcessor::ecnsLogToFile(int bytes)
+void AudioPostProcessor::ecnsLogToRam (int bytes)
 {
-    static int numPoints;
     uint16_t *logp;
     int mode = mEcnsMode + (mEcnsRate==16000?CTO_AUDIO_USECASE_WB_HANDSET:0);
     uint16_t *audioProfile = &mParamTable[AUDIO_PROFILE_PARAMETER_BLOCK_WORD16_SIZE*mode];
 
     if (audioProfile[ECNS_LOG_ENABLE_OFFSET] & ECNS_LOGGING_BITS) {
-        if (!mLogFp[0]) {
-           numPoints = 0;
-           LOGE("EC/NS AUDIO LOGGER CONFIGURATION:");
-           LOGE("log enable %04X",
-               audioProfile[ECNS_LOG_ENABLE_OFFSET]);
-           mkdir(ECNSLOGPATH, 00770);
-           for (uint16_t i=1;i>0;i<<=1) {
-               if (i&ECNS_LOGGING_BITS&audioProfile[ECNS_LOG_ENABLE_OFFSET]) {
-                  numPoints++;
-               }
-           }
-           LOGE("Number of log points is %d.",numPoints);
-           logp = mMotDatalog;
-           for (int i=0;i<numPoints;i++) {
-               char fname[80];
-               fname[0]='\0';
-               // Log format: FEED TAG1 LEN1 F00D [bytes]
-               LOGV("feed? %04X",logp[0]);
-               sprintf(fname, ECNSLOGPATH"/log-0x%04X.pcm",
-                   logp[1]);
-               LOGD("fname[%d] = %s",i,fname);
-               LOGD("len = %d*2", logp[2]);
-               LOGV("food? %04X", logp[3]);
-               mLogFp[i]=fopen((const char *)fname, "w");
-               logp += 4 + logp[2];
-           }
+        if (!mLogBuf[0]) {
+            mLogNumPoints = 0;
+            mLogOffset = 0;
+            LOGE("EC/NS AUDIO LOGGER CONFIGURATION:");
+            LOGE("log enable %04X",
+                audioProfile[ECNS_LOG_ENABLE_OFFSET]);
+            mkdir(ECNSLOGPATH, 00770);
+            for (uint16_t i=1; i>0; i<<=1) {
+                if (i&ECNS_LOGGING_BITS&audioProfile[ECNS_LOG_ENABLE_OFFSET]) {
+                   mLogNumPoints++;
+                }
+            }
+            LOGE("Number of log points is %d.", mLogNumPoints);
+            logp = mMotDatalog;
+            mLogSize = 10*60*50*bytes;
+            for (int i=0; i<mLogNumPoints; i++) {
+                // Allocate 10 minutes of logging per point
+                mLogBuf[i]=(char *)malloc(mLogSize);
+                if (!mLogBuf[i]) {
+                    LOGE("%s: Memory allocation failed.", __FUNCTION__);
+                    for (int j=0; j<i; j++) {
+                        free(mLogBuf[j]);
+                        mLogBuf[j]=0;
+                    }
+                    return;
+                }
+            }
         }
+        if (mLogOffset+bytes > mLogSize)
+            return;
         logp = mMotDatalog;
-        for (int i=0; i<numPoints; i++) {
-            if (mLogFp[i]) {
-                fwrite(&logp[4], logp[2]*sizeof(uint16_t), 1, mLogFp[i]);
+        for (int i=0; i<mLogNumPoints; i++) {
+            if (mLogBuf[i]) {
+                mLogPoint[i] = logp[1];
+                memcpy(&mLogBuf[i][mLogOffset], &logp[4], logp[2]*sizeof(uint16_t));
                 logp += 4+logp[2];
             } else {
-                LOGE("EC/NS logging enabled, but file not open.");
+                LOGE("EC/NS logging enabled, but memory not allocated");
+            }
+        }
+        mLogOffset += bytes;
+    }
+}
+
+void AudioPostProcessor::ecnsLogToFile()
+{
+    if (mLogNumPoints && mLogOffset > 16000*2) {
+        for (int i=0; i<mLogNumPoints; i++) {
+            FILE * fp;
+            char fname[80];
+            sprintf(fname, ECNSLOGPATH"/log-0x%04X.pcm", mLogPoint[i]);
+            fp = fopen((const char *)fname, "w");
+            if (fp) {
+                LOGE("Writing %d bytes to %s", mLogOffset, fname);
+                fwrite(mLogBuf[i], mLogOffset, 1, fp);
+                fclose(fp);
+            } else {
+                LOGE("Problem writing to %s", fname);
             }
         }
     }
+    mLogOffset = 0;
 }
 
 int AudioPostProcessor::read_dock_prop(char const *path)
@@ -556,7 +589,7 @@ int AudioPostProcessor::read_dock_prop(char const *path)
     buffer[SIZE - 1] = '\0';
     fd = open(path, O_RDONLY);
     if (fd >= 0) {
-        int amt = read(fd, buffer, SIZE-1);
+        int amt = ::read(fd, buffer, SIZE-1);
         if (amt != SIZE-1) {
 	    LOGE("Incomplete dock property read, cannot validate dock");
 	    return -1;
@@ -567,9 +600,9 @@ int AudioPostProcessor::read_dock_prop(char const *path)
 	    return -EINVAL;
         }
         close(fd);
-        LOGV("buffer = %s, spkr_dock_prop = 0x%X", buffer, spkr_dock_prop);
+        LOGV("buffer = %s, spkr_dock_prop = 0x%lX", buffer, spkr_dock_prop);
         spkr_dock_prop = spkr_dock_prop ^ basic_dock_prop;
-        LOGV("dock_prop returned = %d", spkr_dock_prop);
+        LOGV("dock_prop returned = %lX", spkr_dock_prop);
         return spkr_dock_prop;
     } else {
         if (already_warned == -1) {
@@ -578,6 +611,120 @@ int AudioPostProcessor::read_dock_prop(char const *path)
         }
         return -errno;
     }
+}
+// ---------------------------------------------------------------------------------------------
+// Echo Canceller thread
+// Needed to isolate the EC/NS module from scheduling jitter of it's clients.
+//
+AudioPostProcessor::EcnsThread::EcnsThread() :
+    mReadBuf(0), mIsRunning(0)
+{
+}
+
+AudioPostProcessor::EcnsThread::~EcnsThread()
+{
+}
+
+int AudioPostProcessor::EcnsThread::readData(int fd, void * buffer, int bytes, int rate,
+                                             AudioPostProcessor * pp)
+{
+    LOGV("%s: read %d bytes at %d rate", __FUNCTION__, bytes, rate);
+    Mutex::Autolock lock(mEcnsReadLock);
+    mProcessor = pp;
+    mFd = fd;
+    mClientBuf = buffer;
+    mReadSize = bytes;
+    mRate = rate;
+    if (!mIsRunning) {
+        LOGD("Create (run) the ECNS thread");
+        run("AudioPostProcessor::EcnsThread", ANDROID_PRIORITY_URGENT_AUDIO);
+        mIsRunning = true;
+    }
+    if (mEcnsReadCond.waitRelative(mEcnsReadLock, seconds(1)) != NO_ERROR) {
+        LOGE("%s: ECNS thread is stalled.", __FUNCTION__);
+        mClientBuf = 0;
+        return -1;
+    }
+    return bytes;
+}
+
+bool AudioPostProcessor::EcnsThread::threadLoop()
+{
+    ssize_t ret1, ret2;
+    struct timeval tv1, tv2;
+    int  usecs;
+
+    LOGD("%s: Enter thread loop size %d rate %d", __FUNCTION__,
+                                          mReadSize, mRate);
+
+    mReadBuf = (int16_t *) malloc(mReadSize);
+    if (!mReadBuf)
+        goto error;
+
+    while (mProcessor->isEcnsEnabled()) {
+        GETTIMEOFDAY(&mtv1, NULL);
+        ret1 = ::read(mFd, mReadBuf, mReadSize/2);
+        if(!mProcessor->isEcnsEnabled())
+            goto error;
+        GETTIMEOFDAY(&mtv2, NULL);
+        ret2 = ::read(mFd, (char *)mReadBuf+mReadSize/2, mReadSize/2);
+        if(!mProcessor->isEcnsEnabled())
+            goto error;
+        if (ret1 <= 0 || ret2 <= 0) {
+            LOGE("%s: Problem reading.", __FUNCTION__);
+            goto error;
+        }
+        GETTIMEOFDAY(&mtv3, NULL);
+        mEcnsReadLock.lock();
+        mProcessor->applyUplinkEcns(mReadBuf, mReadSize, mRate);
+        if (mClientBuf && mReadSize) {
+            // Give the buffer to the client.
+            memcpy(mClientBuf, mReadBuf, mReadSize);
+            mEcnsReadCond.signal();
+            mClientBuf = 0;
+        } else {
+            LOGD("%s: Read overflow (ECNS sanity preserved)", __FUNCTION__);
+        }
+        mEcnsReadLock.unlock();
+        GETTIMEOFDAY(&mtv8, NULL);
+
+#ifdef DEBUG_TIMING
+        tv1.tv_sec = mtv1.tv_sec;
+        tv1.tv_usec = mtv1.tv_usec;
+        tv2.tv_sec = mtv8.tv_sec;
+        tv2.tv_usec = mtv8.tv_usec;
+        // Compare first and last timestamps
+        tv2.tv_sec -= tv1.tv_sec;
+        if(tv2.tv_usec < tv1.tv_usec) {
+            tv2.tv_sec--;
+            tv2.tv_usec = 1000000 + tv2.tv_usec - tv1.tv_usec;
+        } else {
+            tv2.tv_usec = tv2.tv_usec - tv1.tv_usec;
+        }
+        usecs = tv2.tv_usec + tv2.tv_sec*1000000;
+        if (usecs > 22000 || usecs < 18000) {
+            LOGD("jitter: usecs = %d should be 20000", usecs);
+        }
+        if (usecs > 25000) {
+            LOGD("Point 1 (      start): %03d.%06d:", (int)mtv1.tv_sec, (int)mtv1.tv_usec);
+            LOGD("Point 2 (after read1): %03d.%06d:", (int)mtv2.tv_sec, (int)mtv2.tv_usec);
+            LOGD("Point 3 (after read2): %03d.%06d:", (int)mtv3.tv_sec, (int)mtv3.tv_usec);
+            LOGD("Point 4 (      xxxxx): %03d.%06d:", (int)mtv4.tv_sec, (int)mtv4.tv_usec);
+            LOGD("Point 5 (before ECNS): %03d.%06d:", (int)mtv5.tv_sec, (int)mtv5.tv_usec);
+            LOGD("Point 6 (after  ECNS): %03d.%06d:", (int)mtv6.tv_sec, (int)mtv6.tv_usec);
+            LOGD("Point 7 (after write): %03d.%06d:", (int)mtv7.tv_sec, (int)mtv7.tv_usec);
+            LOGD("Point 8 (after logs ): %03d.%06d:", (int)mtv8.tv_sec, (int)mtv8.tv_usec);
+        }
+#endif
+    }
+error:
+    LOGD("%s: Exit thread loop, enabled = %d", __FUNCTION__,mProcessor->isEcnsEnabled());
+    if (mReadBuf) {
+        free (mReadBuf);
+        mReadBuf = 0;
+    }
+    mIsRunning = false;
+    return false;
 }
 
 } //namespace android

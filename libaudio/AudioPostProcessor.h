@@ -40,6 +40,7 @@ public:
             void        enableEcns(bool value);
             int         writeDownlinkEcns(int fd, void * buffer,
                                           bool stereo, int bytes, Mutex * fdLockp);
+            int         read(int fd, void * buffer, int bytes, int rate);
             int         applyUplinkEcns(void * buffer, int bytes, int rate);
             bool        isEcnsEnabled(void) { return mEcnsEnabled; };
 
@@ -50,7 +51,9 @@ private:
 
             void        initEcns(int rate, int bytes);
             void        stopEcns(void);
-            void        ecnsLogToFile(int bytes);
+            void        cleanupEcns(void);
+            void        ecnsLogToRam(int bytes);
+            void        ecnsLogToFile(void);
             int         read_dock_prop(char const *path);
 
         // CTO Multimedia Audio Processing storage buffers
@@ -76,7 +79,11 @@ private:
             int         mEcnsOutFd;       // fd pointing to output driver
             Mutex *     mEcnsOutFdLockp;
             CTO_AUDIO_USECASES_CTRL mEcnsMode;
-            FILE *      mLogFp[15];
+            char *      mLogBuf[15];
+            int         mLogOffset;
+            int         mLogSize;
+            int         mLogNumPoints;
+            uint16_t    mLogPoint[15];
             int16_t *   mEcnsDlBuf;
             int         mEcnsDlBufSize;
             bool        mEcnsOutStereo;
@@ -87,8 +94,28 @@ private:
             uint16_t    mStaticMemory_1[API_MOT_STATIC_MEM_WORD16_SIZE];
             uint16_t    mMotDatalog[API_MOT_DATALOGGING_MEM_WORD16_SIZE];
             uint16_t    mParamTable[AUDIO_PROFILE_PARAMETER_BLOCK_WORD16_SIZE*CTO_AUDIO_USECASE_TOTAL_NUMBER];
-};
 
+        // ECNS Thread
+            class EcnsThread : public Thread {
+public:
+                        EcnsThread();
+                        ~EcnsThread();
+            int         readData(int fd, void * buffer, int bytes, int rate,
+                                 AudioPostProcessor * pp);
+private:
+            bool        threadLoop();
+            Mutex       mEcnsReadLock;
+            Condition   mEcnsReadCond;  // Signal to unblock read thread
+            AudioPostProcessor * mProcessor;
+            void *      mClientBuf;
+            int         mReadSize;
+            int16_t *   mReadBuf;
+            int         mFd;
+            int         mRate;
+            bool        mIsRunning;
+            };
+            sp <EcnsThread> mEcnsThread;
+};
 } // namespace android
 
 #endif // USE_PROPRIETARY_AUDIO_EXTENSIONS

@@ -455,9 +455,8 @@ uint8_t AudioHardware::getGain(int direction, int usecase)
         path = AUDIO_HW_GAIN_HEADSET_NO_MIC;
     else if (outDev & AudioSystem::DEVICE_OUT_WIRED_HEADSET)
         path = AUDIO_HW_GAIN_HEADSET_W_MIC;
-// TODO: support dock.
-//    else if (outDev & AudioSystem::DEVICE_OUT_ANLG_DOCK_HEADSET)
-//        path = AUDIO_HW_GAIN_EMU_DEVICE;
+    else if (outDev & AudioSystem::DEVICE_OUT_ANLG_DOCK_HEADSET)
+        path = AUDIO_HW_GAIN_EMU_DEVICE;
     else
        path = AUDIO_HW_GAIN_SPEAKERPHONE;
 
@@ -1334,31 +1333,8 @@ ssize_t AudioHardware::AudioStreamInTegra::read(void* buffer, ssize_t bytes)
         inbuf = (int16_t *)buffer;
         mSrc.deinit();
     }
-#else
-    if (srcReqd) {
-        LOGE("%s: sample rate mismatch HAL %d, driver %d",
-             __FUNCTION__, mSampleRate, driverRate);
-        return -1;
-    }
-#endif
-
-    ret = ::read(mFd, inbuf, hwReadBytes/2);
-    if (ret >= 0)
-        ret2 = ::read(mFd, (char *)inbuf+hwReadBytes/2, hwReadBytes/2);
-    if (ret2 < 0)
-        ret = ret2;
-    if (ret < 0)
-        LOGE("Error reading from audio in: %s", strerror(errno));
-    else
-        ret += ret2;
-
-#ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
-    if (ret>0)
-        mHardware->mAudioPP.applyUplinkEcns(inbuf, hwReadBytes, driverRate);
-    else if (mHardware->mAudioPP.isEcnsEnabled()) {
-        LOGE("Read is failing, disable EC/NS until something changes");
-        mHardware->mAudioPP.enableEcns(false);
-    }
+    // Read from driver, or ECNS thread, as appropriate.
+    ret = mHardware->mAudioPP.read(mFd, inbuf, hwReadBytes, driverRate);
     if (ret>0 && srcReqd) {
         mSrc.mIoData.input_ptrL = (SRC_INT16_T *) (inbuf);
         mSrc.mIoData.input_count = hwReadBytes / sizeof(SRC_INT16_T);
@@ -1371,7 +1347,15 @@ ssize_t AudioHardware::AudioStreamInTegra::read(void* buffer, ssize_t bytes)
             LOGE("read: buffer overrun");
         }
     }
+#else
+    if (srcReqd) {
+        LOGE("%s: sample rate mismatch HAL %d, driver %d",
+             __FUNCTION__, mSampleRate, driverRate);
+        return -1;
+    }
+    ret = ::read(mFd, inbuf, hwReadBytes);
 #endif
+
     LOGV("%s returns %d.",__FUNCTION__, (int)ret);
     return ret;
 }
