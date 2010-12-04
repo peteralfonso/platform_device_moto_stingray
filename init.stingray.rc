@@ -197,3 +197,6 @@ on property:dev.bootcomplete=1
 on property:ro.bootmode=factorycable
     start tcmd
     start ftmipcd
+
+on property:ro.bootmode=qbp-hw-bypass
+    setprop ril.moto-qc.usb-hw-bypass.state "on"
