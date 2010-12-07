@@ -200,3 +200,30 @@ on property:ro.bootmode=factorycable
 
 on property:ro.bootmode=qbp-hw-bypass
     setprop ril.moto-qc.usb-hw-bypass.state "on"
+
+service wlan_prod /system/bin/insmod /system/lib/modules/bcm4329.ko "firmware_path=/vendor/firmware/fw_bcm4329.bin nvram_path=/system/etc/wifi/bcm4329.cal"
+    group wifi mot_tcmd system
+    oneshot
+    disabled
+
+service wlan_mfg /system/bin/insmod /system/lib/modules/bcm4329.ko "firmware_path=/vendor/firmware/fw_bcm4329_mfg.bin nvram_path=/system/etc/wifi/bcm4329.cal"
+    group wifi mot_tcmd system
+    oneshot
+    disabled
+
+service wlan_unload /system/bin/rmmod bcm4329
+    group wifi mot_tcmd system
+    oneshot
+    disabled
+
+# turn on wifi for tcmd load production firmware
+on property:tcmd.load_wlan="production"
+    start wlan_prod
+
+# turn on wifi for tcmd load manufacturing firmware
+on property:tcmd.load_wlan="manufacturing"
+    start wlan_mfg
+
+# turn off wifi for tcmd
+on property:tcmd.load_wlan="unload"
+    start wlan_unload
