@@ -1153,9 +1153,11 @@ status_t AudioHardware::AudioStreamOutTegra::setParameters(const String8& keyVal
     LOGV("AudioStreamOutTegra::setParameters() %s", keyValuePairs.string());
 
     if (param.getInt(key, device) == NO_ERROR) {
-        mDevices = device;
-        LOGV("set output routing %x", mDevices);
-        status = mHardware->doRouting();
+        if (device != 0) {
+            mDevices = device;
+            LOGV("set output routing %x", mDevices);
+            status = mHardware->doRouting();
+        }
         param.remove(key);
     }
 
