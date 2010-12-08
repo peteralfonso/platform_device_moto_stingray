@@ -8,10 +8,11 @@ on early-init
 
 on fs
     mount ext4 /dev/block/platform/sdhci-tegra.3/by-name/system /system wait ro
+    setprop ro.crypto.tmpfs_options size=128m,mode=0771,uid=1000,gid=1000
     mount ext4 /dev/block/platform/sdhci-tegra.3/by-name/userdata /data wait noatime nosuid nodev
     mount ext4 /dev/block/platform/sdhci-tegra.3/by-name/cache /cache wait noatime nosuid nodev
 
-on boot
+on post-fs-data
     mkdir /data/misc/wifi 0770 wifi wifi
     mkdir /data/misc/wifi/sockets 0770 wifi wifi
     mkdir /data/misc/dhcp 0770 dhcp dhcp
@@ -22,6 +23,15 @@ on boot
     chown media_rw media_rw /data/media
     setprop ro.media.storage /data/media
 
+    # GPS
+    #Create location directory, BRCM guci library stores LTO file and read/write
+    # config file.
+    mkdir /data/location 0770 radio radio
+
+    # Set indication (checked by vold) that we have finished this action
+    setprop vold.post_fs_data_done 1
+
+on boot
 # bluetooth
     # power up/down interface
     chown bluetooth bluetooth /sys/class/rfkill/rfkill0/type
@@ -73,11 +83,6 @@ on boot
     chmod 660 /sys/class/leds/flash/brightness
     chmod 660 /sys/class/leds/torch/brightness
 
-# GPS
-    #Create location directory, BRCM guci library stores LTO file and read/write
-    # config file.
-    mkdir /data/location 0770 radio radio
-
 # UART Device
     chown radio radio /dev/ttyHS4
     chmod 640 /dev/ttyHS4
@@ -119,6 +124,7 @@ on boot
 
 # Ecompass daemon
 service akmd2 /system/bin/akmd2
+    class late_start
     user compass
     group compass misc input
 
@@ -128,11 +134,13 @@ service wpa_supplicant /system/bin/wpa_supplicant \
 #   after setting up the capabilities required for WEXT
 #   user wifi
 #   group wifi inet keystore
+    class main
     socket wpa_eth0 dgram 660 wifi wifi
     disabled
     oneshot
 
 service dhcpcd /system/bin/dhcpcd -ABKL
+    class main
     disabled
     oneshot
 
@@ -140,6 +148,7 @@ service dhcpcd /system/bin/dhcpcd -ABKL
 # bugtogo.sh tool will invoke bugreport and propt email composer
 # if not in user build.
 service bugreport /system/bin/bugtogo.sh
+    class main
     disabled
     oneshot
     keycodes 115 114
@@ -147,11 +156,13 @@ service bugreport /system/bin/bugtogo.sh
 service hciattach /system/bin/brcm_patchram_plus --enable_hci --enable_lpm \
     --baudrate 3000000 --patchram /etc/firmware/bcm4329.hcd --pcm_role slave \
     --use_baudrate_for_download /dev/ttyHS2
+    class main
     user bluetooth
     group bluetooth net_bt_admin
     disabled
 
 service location /system/bin/location
+    class late_start
     socket gpshal_socket stream 660 radio system
     socket location_shim stream 660 system system
     socket gps_tcmd stream 660 radio system
@@ -160,26 +171,32 @@ service location /system/bin/location
     oneshot
 
 service locDrv /system/bin/brcm_guci_drv -config /system/etc/gpsconfig.xml
+    class late_start
     user radio
     group radio inet sdcard_rw
 
 service tcmd /system/bin/tcmd
+    class main
     oneshot
     disabled
 
 service ftmipcd /system/bin/ftmipcd
+    class main
     oneshot
     disabled
 
 # Immediately drops to user radio, after starting the real-time thread
 service whisper /system/bin/whisperd
+    class late_start
     group radio system mot_accy
 
 # create virtual SD card at /mnt/sdcard, based on the /data/media directory
 # daemon will drop to user/group system/media_rw after initializing
 service sdcard /system/bin/sdcard /data/media 1000 1023
+    class late_start
 
 service motolocation /system/bin/sh /system/bin/am startservice -n com.motorola.android.locationproxy/com.motorola.android.locationproxy.LocationProxyService
+    class late_start
     disabled
     oneshot
 
@@ -188,6 +205,7 @@ on property:gsm.mot.locatonproxy=start
 
 # Get BP version and save to misc
 service savebpver /system/bin/savebpver
+   class main
    oneshot
    disabled
 
