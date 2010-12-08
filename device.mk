@@ -20,6 +20,7 @@ DEVICE_PACKAGE_OVERLAYS := \
 PRODUCT_PROPERTY_OVERRIDES := \
     wifi.interface=eth0 \
     wifi.supplicant_scan_interval=15 \
+    dalvik.vm.heapstartsize=5m \
     dalvik.vm.heapsize=32m
 
 PRODUCT_COPY_FILES += \
