@@ -1086,6 +1086,8 @@ status_t AudioHardware::AudioStreamOutTegra::online()
     if (!mIsSpkrEnabled)
         return NO_ERROR;
 
+    LOGV("output %p going online", this);
+
     return mHardware->doStandby(mFdCtl, true, false); // output, online
 }
 
@@ -1093,16 +1095,20 @@ status_t AudioHardware::AudioStreamOutTegra::standby()
 {
     status_t status = NO_ERROR;
     Mutex::Autolock lock(mHardware->mLock);
-    if (!mHardware->mCurOutDevice.on && !mIsBtEnabled) {
-        LOGV("%s: output already in standby", __FUNCTION__);
-        return NO_ERROR;
-    }
-    // Prevent EC/NS from writing to the file anymore.
+
+    LOGV("output %p going into standby", this);
+
 #ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
+    // Prevent EC/NS from writing to the file anymore.
     mHardware->mAudioPP.writeDownlinkEcns(-1,0,false,0,&mFdLock);
 #endif
-    status = mHardware->doStandby(mFdCtl, true, true); // output, standby
-    mIsBtEnabled = false;
+    if (mHardware->mCurOutDevice.on) {
+        // doStandby() calls flush() which also handles the case where multiple devices
+        // including bluetooth or SPDIF are selected
+        status = mHardware->doStandby(mFdCtl, true, true); // output, standby
+    } else if (mIsBtEnabled || mIsSpdifEnabled) {
+        flush();
+    }
     return status;
 }
 
@@ -1376,6 +1382,8 @@ status_t AudioHardware::AudioStreamInTegra::standby()
     if (!mHardware)
         return -1;
 
+    LOGV("input %p going into standby", this);
+
     mLock.unlock();
     mHardware->doRouting_l();
     mLock.lock();
@@ -1397,7 +1405,8 @@ status_t AudioHardware::AudioStreamInTegra::online()
         if (!mIsMicEnabled && !mHardware->mCurInDevice.on)
             return NO_ERROR;
     }
-    LOGV("%s", __FUNCTION__);
+
+    LOGV("input %p going online", this);
 
     reopenReconfigDriver();
 
