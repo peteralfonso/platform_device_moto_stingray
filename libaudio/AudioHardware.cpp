@@ -40,7 +40,7 @@ const uint32_t AudioHardware::inputSamplingRates[] = {
 // ----------------------------------------------------------------------------
 
 AudioHardware::AudioHardware() :
-    mInit(false), mMicMute(true), mBluetoothNrec(true), mBluetoothId(0),
+    mInit(false), mMicMute(false), mBluetoothNrec(true), mBluetoothId(0),
     mOutput(0), mCpcapCtlFd(-1), mMasterVol(1.0), mVoiceVol(1.0)
 {
     LOGV("AudioHardware constructor");
@@ -279,15 +279,9 @@ status_t AudioHardware::doStandby(int stop_fd, bool output, bool enable)
 status_t AudioHardware::setMicMute(bool state)
 {
     Mutex::Autolock lock(mLock);
-    return setMicMute_nosync(state);
-}
-
-// always call with mutex held
-status_t AudioHardware::setMicMute_nosync(bool state)
-{
     if (mMicMute != state) {
         mMicMute = state;
-        return NO_ERROR; //doAudioRouteOrMute(SND_DEVICE_CURRENT);
+        LOGV("setMicMute() %s", (state)?"ON":"OFF");
     }
     return NO_ERROR;
 }
@@ -640,16 +634,6 @@ status_t AudioHardware::doRouting_l()
         setVolume_l(mMasterVol, AUDIO_HW_GAIN_USECASE_VOICE);
     else
         setVolume_l(mMasterVol, AUDIO_HW_GAIN_USECASE_MM);
-
-    return NO_ERROR;
-}
-
-status_t AudioHardware::checkMicMute()
-{
-    Mutex::Autolock lock(mLock);
-    if (!isInCall()) {
-        setMicMute_nosync(true);
-    }
 
     return NO_ERROR;
 }
@@ -1361,8 +1345,18 @@ ssize_t AudioHardware::AudioStreamInTegra::read(void* buffer, ssize_t bytes)
              __FUNCTION__, mSampleRate, driverRate);
         return -1;
     }
-    ret = ::read(mFd, inbuf, hwReadBytes);
+    ret = ::read(mFd, buffer, hwReadBytes);
 #endif
+
+    // It is not optimal to mute after all the above processing but it is necessary to
+    // keep the clock sync from input device. It also avoids glitches on output streams due
+    // to EC being turned on and off
+    bool muted;
+    mHardware->getMicMute(&muted);
+    if (muted) {
+        LOGV("%s muted",__FUNCTION__);
+        memset(buffer, 0, bytes);
+    }
 
     LOGV("%s returns %d.",__FUNCTION__, (int)ret);
     return ret;

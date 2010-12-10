@@ -120,8 +120,6 @@ protected:
     virtual     int     getActiveInputRate();
 private:
 
-    status_t    setMicMute_nosync(bool state);
-    status_t    checkMicMute();
     status_t    dumpInternals(int fd, const Vector<String16>& args);
     uint32_t    getInputSampleRate(uint32_t sampleRate);
     status_t    doStandby(int stop_fd, bool output, bool enable);
