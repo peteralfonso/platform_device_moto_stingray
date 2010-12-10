@@ -474,7 +474,7 @@ int AudioPostProcessor::applyUplinkEcns(void * buffer, int bytes, int rate)
     }
 
     // Do Echo Cancellation
-    GETTIMEOFDAY(&mtv5, NULL);
+    GETTIMEOFDAY(&mtv4, NULL);
     API_MOT_LOG_RESET(&mEcnsCtrl, &mMemBlocks);
     API_MOT_DOWNLINK(&mEcnsCtrl, &mMemBlocks, (int16*)dl_buf, (int16*)ul_buf, &(ul_gbuff2[0]));
     API_MOT_UPLINK(&mEcnsCtrl, &mMemBlocks, (int16*)dl_buf, (int16*)ul_buf, &(ul_gbuff2[0]));
@@ -489,7 +489,7 @@ int AudioPostProcessor::applyUplinkEcns(void * buffer, int bytes, int rate)
         }
         dl_buf_bytes *= 2;
     }
-    GETTIMEOFDAY(&mtv6, NULL);
+    GETTIMEOFDAY(&mtv5, NULL);
     if (mEcnsOutFd != -1) {
         mEcnsOutFdLockp->lock();
         ::write(mEcnsOutFd, &dl_buf[0],
@@ -498,7 +498,7 @@ int AudioPostProcessor::applyUplinkEcns(void * buffer, int bytes, int rate)
     }
     // Do the CTO SuperAPI internal logging.
     // (Do this after writing output to avoid adding latency.)
-    GETTIMEOFDAY(&mtv7, NULL);
+    GETTIMEOFDAY(&mtv6, NULL);
     ecnsLogToRam(bytes);
     return bytes;
 }
@@ -637,7 +637,7 @@ int AudioPostProcessor::EcnsThread::readData(int fd, void * buffer, int bytes, i
     mRate = rate;
     if (!mIsRunning) {
         LOGD("Create (run) the ECNS thread");
-        run("AudioPostProcessor::EcnsThread", ANDROID_PRIORITY_URGENT_AUDIO);
+        run("AudioPostProcessor::EcnsThread", ANDROID_PRIORITY_HIGHEST);
         mIsRunning = true;
     }
     if (mEcnsReadCond.waitRelative(mEcnsReadLock, seconds(1)) != NO_ERROR) {
@@ -650,9 +650,16 @@ int AudioPostProcessor::EcnsThread::readData(int fd, void * buffer, int bytes, i
 
 bool AudioPostProcessor::EcnsThread::threadLoop()
 {
-    ssize_t ret1, ret2;
+#ifdef DEBUG_TIMING
+    int count = 0;
+    int small_jitter = 0;
+    int medium_jitter = 0;
+    int large_jitter = 0;
+#endif
+    ssize_t ret1 = 0, ret2;
     struct timeval tv1, tv2;
     int  usecs;
+    bool half_done = false;
 
     LOGD("%s: Enter thread loop size %d rate %d", __FUNCTION__,
                                           mReadSize, mRate);
@@ -663,9 +670,8 @@ bool AudioPostProcessor::EcnsThread::threadLoop()
 
     while (mProcessor->isEcnsEnabled()) {
         GETTIMEOFDAY(&mtv1, NULL);
-        ret1 = ::read(mFd, mReadBuf, mReadSize/2);
-        if(!mProcessor->isEcnsEnabled())
-            goto error;
+        if (!half_done)
+            ret1 = ::read(mFd, mReadBuf, mReadSize/2);
         GETTIMEOFDAY(&mtv2, NULL);
         ret2 = ::read(mFd, (char *)mReadBuf+mReadSize/2, mReadSize/2);
         if(!mProcessor->isEcnsEnabled())
@@ -680,15 +686,21 @@ bool AudioPostProcessor::EcnsThread::threadLoop()
         if (mClientBuf && mReadSize) {
             // Give the buffer to the client.
             memcpy(mClientBuf, mReadBuf, mReadSize);
+            // Avoid read overflow by reading before signaling the similar-priority read thread.
+            ret1 = ::read(mFd, mReadBuf, mReadSize/2);
+            half_done = true;
+            GETTIMEOFDAY(&mtv7, NULL);
             mEcnsReadCond.signal();
             mClientBuf = 0;
         } else {
+            half_done = false;
             LOGD("%s: Read overflow (ECNS sanity preserved)", __FUNCTION__);
         }
         mEcnsReadLock.unlock();
         GETTIMEOFDAY(&mtv8, NULL);
 
 #ifdef DEBUG_TIMING
+	count++;
         tv1.tv_sec = mtv1.tv_sec;
         tv1.tv_usec = mtv1.tv_usec;
         tv2.tv_sec = mtv8.tv_sec;
@@ -702,18 +714,31 @@ bool AudioPostProcessor::EcnsThread::threadLoop()
             tv2.tv_usec = tv2.tv_usec - tv1.tv_usec;
         }
         usecs = tv2.tv_usec + tv2.tv_sec*1000000;
-        if (usecs > 22000 || usecs < 18000) {
-            LOGD("jitter: usecs = %d should be 20000", usecs);
-        }
         if (usecs > 25000) {
+            if (usecs > 30000)
+                large_jitter++;
+            else
+                medium_jitter++;
+            LOGD("jitter: usecs = %d should be 20000", usecs);
             LOGD("Point 1 (      start): %03d.%06d:", (int)mtv1.tv_sec, (int)mtv1.tv_usec);
             LOGD("Point 2 (after read1): %03d.%06d:", (int)mtv2.tv_sec, (int)mtv2.tv_usec);
             LOGD("Point 3 (after read2): %03d.%06d:", (int)mtv3.tv_sec, (int)mtv3.tv_usec);
-            LOGD("Point 4 (      xxxxx): %03d.%06d:", (int)mtv4.tv_sec, (int)mtv4.tv_usec);
-            LOGD("Point 5 (before ECNS): %03d.%06d:", (int)mtv5.tv_sec, (int)mtv5.tv_usec);
-            LOGD("Point 6 (after  ECNS): %03d.%06d:", (int)mtv6.tv_sec, (int)mtv6.tv_usec);
-            LOGD("Point 7 (after write): %03d.%06d:", (int)mtv7.tv_sec, (int)mtv7.tv_usec);
-            LOGD("Point 8 (after logs ): %03d.%06d:", (int)mtv8.tv_sec, (int)mtv8.tv_usec);
+            LOGD("Point 4 (before ECNS): %03d.%06d:", (int)mtv4.tv_sec, (int)mtv4.tv_usec);
+            LOGD("Point 5 (after  ECNS): %03d.%06d:", (int)mtv5.tv_sec, (int)mtv5.tv_usec);
+            LOGD("Point 6 (after write): %03d.%06d:", (int)mtv6.tv_sec, (int)mtv6.tv_usec);
+            LOGD("Point 7 (before sgnl): %03d.%06d:", (int)mtv7.tv_sec, (int)mtv7.tv_usec);
+            LOGD("Point 8 (after unlck): %03d.%06d:", (int)mtv8.tv_sec, (int)mtv8.tv_usec);
+        } else if ((usecs > 22000) || (usecs < 18000)) {
+            small_jitter++;
+            LOGD("jitter: usecs = %d should be 20000", usecs);
+        }
+        if ((count % 500)== 0) {
+            LOGD("====================================== Statistics ===========================");
+            LOGD(" After %d seconds:", count/50);
+            LOGD(" Small jitters-  %d (%02.5f%%)", small_jitter, ((float)small_jitter)*100/count);
+            LOGD(" Medium jitters- %d (%02.5f%%)", medium_jitter, ((float)medium_jitter)*100/count);
+            LOGD(" Large jitters-  %d (%02.5f%%)", large_jitter, ((float)large_jitter)*100/count);
+            LOGD("=============================================================================");
         }
 #endif
     }
