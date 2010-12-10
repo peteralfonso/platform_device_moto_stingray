@@ -26,12 +26,10 @@
 #include <hardware_legacy/AudioHardwareBase.h>
 #include "AudioPostProcessor.h"
 #ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
-#include "src_type_def.h"
-#include "src_lib.h"
-#endif
 extern "C" {
-#include <linux/msm_audio.h>
+#include "rate_conv.h"
 }
+#endif
 
 namespace android {
 
@@ -141,12 +139,12 @@ private:
     inline      bool        initted() {return mSrcInitted;};
                 void        init(int inRate, int outRate);
     inline      void        deinit() {mSrcInitted = false;};
-                SRC_IO_OBJ_T mIoData;
-    inline      void        srcConvert() {src_convert(&mSrcStaticData, 0x800, &mIoData);};
+                SRC_IO_T    mIoData;
+    inline      void        srcConvert() { rate_convert(&mIoData, &mSrcObj, 0x0800); };
     private:
-                SRC_MODE_T  mSrcMode;
-                SRC_OBJ_T   mSrcStaticData;
-                SRC_INT16_T mSrcScratchMem[SRC_MAX_MEM];
+                SRC_OBJ_T   mSrcObj;
+                char *      mSrcBuffer;
+                SRC_INIT_T  mSrcInit;
                 int         mSrcInRate;
                 int         mSrcOutRate;
                 bool        mSrcInitted;

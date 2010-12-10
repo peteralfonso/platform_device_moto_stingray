@@ -701,7 +701,8 @@ AudioHardware::AudioStreamInTegra *AudioHardware::getActiveInput_l()
 // Sample Rate Converter wrapper
 //
 #ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
-AudioHardware::AudioStreamSrc::AudioStreamSrc()
+AudioHardware::AudioStreamSrc::AudioStreamSrc() :
+  mSrcInitted(false)
 {
 }
 AudioHardware::AudioStreamSrc::~AudioStreamSrc()
@@ -710,61 +711,20 @@ AudioHardware::AudioStreamSrc::~AudioStreamSrc()
 
 void AudioHardware::AudioStreamSrc::init(int inRate, int outRate)
 {
-    SRC_MODE_T srcMode = MODE_END;
-    SRC_STATUS_T initResult;
-
-    mSrcInitted = false;
-    mSrcStaticData.scratch_buffer = mSrcScratchMem;
-
-    // Lots of modes supported, but let's implement only what is required.
-    if (inRate == 44100) {
-        srcMode = (
-            outRate == 8000  ? SRC_44_08 :
-            outRate == 11025 ? SRC_44_11 :
-            outRate == 12000 ? SRC_44_12 :
-            outRate == 16000 ? SRC_44_16 :
-            outRate == 22050 ? SRC_44_22 :
-            outRate == 24000 ? SRC_44_24 :
-            outRate == 32000 ? SRC_44_32 :
-            /* Invalid */ MODE_END
-        );
-    } else if (inRate == 8000) {
-        srcMode = (
-            outRate == 11025  ? SRC_08_11 :
-            outRate == 12000  ? SRC_08_12 :
-            outRate == 16000  ? SRC_08_16 :
-            outRate == 22050  ? SRC_08_22 :
-            outRate == 24000  ? SRC_08_24 :
-            outRate == 32000  ? SRC_08_32 :
-            outRate == 44100  ? SRC_08_44 :
-            outRate == 48000  ? SRC_08_48 :
-            /* Invalid */ MODE_END
-        );
-    } else if (inRate == 16000) {
-        srcMode = (
-            outRate == 8000   ? SRC_16_08 :
-            outRate == 11025  ? SRC_16_11 :
-            outRate == 12000  ? SRC_16_12 :
-            outRate == 22050  ? SRC_16_22 :
-            outRate == 24000  ? SRC_16_24 :
-            outRate == 32000  ? SRC_16_32 :
-            outRate == 44100  ? SRC_16_44 :
-            outRate == 48000  ? SRC_16_48 :
-            /* Invalid */ MODE_END
-        );
-    }
-
-    if (srcMode == MODE_END) {
-        LOGE("Failed to initialize sample rate converter - bad rate");
+    if (mSrcBuffer == NULL)
+        mSrcBuffer = new char[src_memory_required_stereo(MAX_FRAME_LEN, MAX_CONVERT_RATIO)];
+    if (mSrcBuffer == NULL) {
+        LOGE("Failed to allocate memory for sample rate converter.");
         return;
     }
-    // Do MONO sample rate conversion.  Should be half the MCPS of stereo.
-    // Use SRC_STEREO_INTERLEAVED for stereo data.
-    initResult = src_init(&mSrcStaticData, srcMode, SRC_MONO);
-    if (initResult != SRC_SUCCESS) {
-        LOGE("Failed to initialize sample rate converter - %d",initResult);
-        return;
-    }
+    mSrcInit.memory = (SRC16*)(mSrcBuffer);
+    mSrcInit.input_rate = inRate;
+    mSrcInit.output_rate = outRate;
+    mSrcInit.frame_length = MAX_FRAME_LEN;
+    mSrcInit.stereo_flag = SRC_OFF;
+    mSrcInit.input_interleaved = SRC_OFF;
+    mSrcInit.output_interleaved = SRC_OFF;
+    rate_convert_init(&mSrcInit, &mSrcObj);
 
     mSrcInitted = true;
     mSrcInRate = inRate;
@@ -966,14 +926,16 @@ ssize_t AudioHardware::AudioStreamOutTegra::write(const void* buffer, size_t byt
 
     if (mSrc.initted()) {
         // Apply the sample rate conversion.
-        mSrc.mIoData.input_ptrL = (SRC_INT16_T *) (buffer);
-        mSrc.mIoData.input_count = outsize / sizeof(SRC_INT16_T);
-        mSrc.mIoData.input_ptrR = 0;
-        mSrc.mIoData.output_ptr = (SRC_INT16_T *) (buffer);
-        mSrc.mIoData.output_count = outsize / sizeof(SRC_INT16_T);
+        mSrc.mIoData.in_buf_ch1 = (SRC16 *) (buffer);
+        mSrc.mIoData.in_buf_ch2 = 0;
+        mSrc.mIoData.input_count = outsize / sizeof(SRC16);
+        mSrc.mIoData.out_buf_ch1 = (SRC16 *) (buffer);
+        mSrc.mIoData.out_buf_ch2 = 0;
+        mSrc.mIoData.output_count = outsize / sizeof(SRC16);
         if (mHaveSpareSample) {
             // Leave room for placing the spare.
-            mSrc.mIoData.output_ptr++;
+            mSrc.mIoData.out_buf_ch1++;
+            mSrc.mIoData.output_count--;
         }
         mSrc.srcConvert();
         LOGV("Converted %d bytes at %d to %d bytes at %d",
@@ -1328,13 +1290,14 @@ ssize_t AudioHardware::AudioStreamInTegra::read(void* buffer, ssize_t bytes)
     // Read from driver, or ECNS thread, as appropriate.
     ret = mHardware->mAudioPP.read(mFd, inbuf, hwReadBytes, driverRate);
     if (ret>0 && srcReqd) {
-        mSrc.mIoData.input_ptrL = (SRC_INT16_T *) (inbuf);
-        mSrc.mIoData.input_count = hwReadBytes / sizeof(SRC_INT16_T);
-        mSrc.mIoData.input_ptrR = 0;
-        mSrc.mIoData.output_ptr = (SRC_INT16_T *) (buffer);
-        mSrc.mIoData.output_count = bytes/sizeof(SRC_INT16_T);
+        mSrc.mIoData.in_buf_ch1 = (SRC16 *) (inbuf);
+        mSrc.mIoData.in_buf_ch2 = 0;
+        mSrc.mIoData.input_count = hwReadBytes / sizeof(SRC16);
+        mSrc.mIoData.out_buf_ch1 = (SRC16 *) (buffer);
+        mSrc.mIoData.out_buf_ch2 = 0;
+        mSrc.mIoData.output_count = bytes/sizeof(SRC16);
         mSrc.srcConvert();
-        ret = mSrc.mIoData.output_count*sizeof(SRC_INT16_T);
+        ret = mSrc.mIoData.output_count*sizeof(SRC16);
         if (ret > bytes) {
             LOGE("read: buffer overrun");
         }
