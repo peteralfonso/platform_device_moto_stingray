@@ -61,7 +61,7 @@ LOCAL_STATIC_LIBRARIES += \
 
 LOCAL_CFLAGS += -DUSE_PROPRIETARY_AUDIO_EXTENSIONS
 LOCAL_C_INCLUDES += vendor/moto/stingray/motomm/ghdr
-LOCAL_C_INCLUDES += vendor/moto/stingray/motomm/src
+LOCAL_C_INCLUDES += vendor/moto/stingray/motomm/rate_conv
 endif
 
 ifeq ($(BOARD_HAVE_BLUETOOTH),true)
