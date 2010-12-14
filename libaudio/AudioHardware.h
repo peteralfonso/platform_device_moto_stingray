@@ -24,6 +24,7 @@
 #include <utils/SortedVector.h>
 
 #include <hardware_legacy/AudioHardwareBase.h>
+#include <media/mediarecorder.h>
 #include "AudioPostProcessor.h"
 #ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
 extern "C" {
@@ -36,7 +37,7 @@ namespace android {
 #include <linux/cpcap_audio.h>
 #include <linux/tegra_audio.h>
 
-#define AUDIO_HW_NUM_OUT_BUF 4
+#define AUDIO_HW_NUM_OUT_BUF 2
 #define AUDIO_HW_OUT_LATENCY_MS 0
 
 #define AUDIO_HW_IN_SAMPLERATE 11025                  // Default audio input sample rate
@@ -67,6 +68,12 @@ enum {
     AUDIO_HW_GAIN_RSVD4,
     AUDIO_HW_GAIN_RSVD5,
     AUDIO_HW_GAIN_NUM_PATHS
+};
+
+enum input_state {
+    AUDIO_STREAM_IDLE,
+    AUDIO_STREAM_CONFIG_REQ,
+    AUDIO_STREAM_CONFIGURED
 };
 
 class AudioHardware : public  AudioHardwareBase
@@ -128,6 +135,7 @@ private:
     void        readHwGainFile();
 
     AudioStreamInTegra*   getActiveInput_l();
+    status_t    setMicMute_l(bool state);
 
 #ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
     class AudioStreamSrc {
@@ -171,13 +179,14 @@ private:
         virtual ssize_t     write(const void* buffer, size_t bytes);
         virtual void        flush();
         virtual status_t    standby();
-        virtual status_t    online();
+        virtual status_t    online_l();
         virtual status_t    dump(int fd, const Vector<String16>& args);
                 bool        getStandby();
         virtual status_t    setParameters(const String8& keyValuePairs);
         virtual String8     getParameters(const String8& keys);
                 uint32_t    devices() { return mDevices; }
         virtual status_t    getRenderPosition(uint32_t *dspFrames);
+
     private:
                 AudioHardware* mHardware;
                 Mutex       mLock;
@@ -195,21 +204,20 @@ private:
                 bool        mIsSpkrEnabled;
                 bool        mIsBtEnabled;
                 bool        mIsSpdifEnabled;
+                bool        mIsSpkrEnabledReq;
+                bool        mIsBtEnabledReq;
+                bool        mIsSpdifEnabledReq;
                 int16_t     mSpareSample;
                 bool        mHaveSpareSample;
+                int         mState;
 #ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
                 AudioStreamSrc mSrc;
 #endif
+                bool        mLocked;        // setDriver() doesn't have to lock if true
     };
 
     class AudioStreamInTegra : public AudioStreamIn {
     public:
-        enum input_state {
-            AUDIO_INPUT_CLOSED,
-            AUDIO_INPUT_OPENED,
-            AUDIO_INPUT_STARTED
-        };
-
                             AudioStreamInTegra();
         virtual             ~AudioStreamInTegra();
                 status_t    set(AudioHardware* mHardware,
@@ -226,15 +234,14 @@ private:
         virtual ssize_t     read(void* buffer, ssize_t bytes);
         virtual status_t    dump(int fd, const Vector<String16>& args);
         virtual status_t    standby();
-        virtual status_t    online();
+        virtual status_t    online_l();
                 bool        getStandby();
         virtual status_t    setParameters(const String8& keyValuePairs);
         virtual String8     getParameters(const String8& keys);
         virtual unsigned int  getInputFramesLost() const { return 0; }
                 uint32_t    devices() { return mDevices; }
-                int         state() const { return mState; }
                 void        setDriver(bool mic, bool bluetooth);
-
+                int         source() const { return mSource; }
     private:
                 AudioHardware* mHardware;
                 Mutex       mLock;
@@ -248,14 +255,15 @@ private:
                 size_t      mBufferSize;
                 AudioSystem::audio_in_acoustics mAcoustics;
                 uint32_t    mDevices;
-                bool        mNeedsOnline;
                 bool        mIsMicEnabled;
                 bool        mIsBtEnabled;
+                int         mSource;
                 // 20 millisecond scratch buffer
                 int16_t     mInScratch[48000/50];
 #ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
                 AudioStreamSrc mSrc;
 #endif
+                bool        mLocked;        // setDriver() doesn't have to lock if true
                 void        reopenReconfigDriver();
     };
 
