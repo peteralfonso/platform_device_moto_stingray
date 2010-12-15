@@ -203,7 +203,20 @@ void AudioHardware::closeInputStream(AudioStreamIn* in)
 
 status_t AudioHardware::setMode(int mode)
 {
-    return AudioHardwareBase::setMode(mode);
+    AutoMutex lock(mLock);
+    bool wasInCall = isInCall();
+    LOGV("setMode() : new %d, old %d", mode, mMode);
+    status_t status = AudioHardwareBase::setMode(mode);
+    if (status == NO_ERROR) {
+        if (wasInCall ^ isInCall()) {
+            doRouting_l();
+            if (wasInCall) {
+                setMicMute_l(false);
+            }
+        }
+    }
+
+    return status;
 }
 
 // Must be called with mLock held
@@ -279,6 +292,11 @@ status_t AudioHardware::doStandby(int stop_fd, bool output, bool enable)
 status_t AudioHardware::setMicMute(bool state)
 {
     Mutex::Autolock lock(mLock);
+    return setMicMute_l(state);
+}
+
+status_t AudioHardware::setMicMute_l(bool state)
+{
     if (mMicMute != state) {
         mMicMute = state;
         LOGV("setMicMute() %s", (state)?"ON":"OFF");
@@ -490,6 +508,7 @@ status_t AudioHardware::doRouting_l()
     uint32_t micInDevice   = inputDevice ^ btScoInDevice;
     int sndOutDevice = -1;
     int sndInDevice = -1;
+    bool btScoOn = btScoOutDevices||btScoInDevice;
 
     LOGV("%s: inputDevice %x, outputDevices %x", __FUNCTION__,
          inputDevice, outputDevices);
@@ -566,18 +585,27 @@ status_t AudioHardware::doRouting_l()
              strerror(errno));
 
     mOutput->setDriver(speakerOutDevices?true:false,
-                       btScoOutDevices||btScoInDevice,
+                       btScoOn,
                        spdifOutDevices?true:false);
     if (input)
         input->setDriver(micInDevice?true:false,
                          btScoInDevice?true:false);
-    //TODO: EC/NS decision that doesn't isn't so presumptuous.
-    bool ecnsEnabled = mCurOutDevice.on && mCurInDevice.on && getActiveInputRate();
+
+    bool ecnsEnabled = false;
+    // enable EC if:
+    // - the audio mode is IN_CALL or IN_COMMUNICATION  AND
+    // - the output stream is active AND
+    // - an input stream with VOICE_COMMUNICATION source is active
+    if (isInCall() && !mOutput->getStandby() &&
+        input && input->source() == AUDIO_SOURCE_VOICE_COMMUNICATION) {
+        ecnsEnabled = true;
+    }
+
     int oldInRate=mHwInRate, oldOutRate=mHwOutRate;
 #ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
     int ecnsRate = getActiveInputRate() < 16000? 8000 : 16000;
     mAudioPP.setAudioDev(&mCurOutDevice, &mCurInDevice,
-                         btScoOutDevices||btScoInDevice, mBluetoothNrec,
+                         btScoOn, mBluetoothNrec,
                          spdifOutDevices?true:false);
     mAudioPP.enableEcns(ecnsEnabled);
     // Check input/output rates for HW.
@@ -595,19 +623,20 @@ status_t AudioHardware::doRouting_l()
         mHwOutRate = 44100;
         LOGV("No EC/NS, set input rate %d, output %d.", mHwInRate, mHwOutRate);
     }
-    if (btScoOutDevices||btScoInDevice) {
+    if (btScoOn) {
         mHwOutRate = 8000;
         mHwInRate = 8000;
         LOGD("Bluetooth SCO active, rate forced to 8K");
     }
+
     int speakerOutRate = 0;
     if (::ioctl(mCpcapCtlFd, CPCAP_AUDIO_OUT_GET_RATE, &speakerOutRate))
         LOGE("could not read output rate: %s\n",
                    strerror(errno));
     if (mHwOutRate != oldOutRate ||
-        (speakerOutRate!=44100 && (btScoOutDevices||btScoInDevice))) {
+        (speakerOutRate!=44100 && btScoOn)) {
         int speaker_rate = mHwOutRate;
-        if (btScoOutDevices||btScoInDevice) {
+        if (btScoOn) {
             speaker_rate = 44100;
         }
         // Flush old data (wrong rate) from I2S driver before changing rate.
@@ -689,7 +718,7 @@ AudioHardware::AudioStreamInTegra *AudioHardware::getActiveInput_l()
     for (size_t i = 0; i < mInputs.size(); i++) {
         // return first input found not being in standby mode
         // as only one input can be in this state
-        if (mInputs[i]->state() > AudioStreamInTegra::AUDIO_INPUT_CLOSED) {
+        if (!mInputs[i]->getStandby()) {
             return mInputs[i];
         }
     }
@@ -736,7 +765,9 @@ void AudioHardware::AudioStreamSrc::init(int inRate, int outRate)
 
 AudioHardware::AudioStreamOutTegra::AudioStreamOutTegra() :
     mHardware(0), mFd(-1), mFdCtl(-1), mStartCount(0), mRetryCount(0), mDevices(0),
-    mIsSpkrEnabled(0), mIsBtEnabled(0), mIsSpdifEnabled(0)
+    mIsSpkrEnabled(0), mIsBtEnabled(0), mIsSpdifEnabled(0),
+    mIsSpkrEnabledReq(0), mIsBtEnabledReq(0), mIsSpdifEnabledReq(0),
+    mState(AUDIO_STREAM_IDLE), mLocked(false)
 {
     mFd = ::open("/dev/audio0_out", O_RDWR);
     mFdCtl = ::open("/dev/audio0_out_ctl", O_RDWR);
@@ -748,29 +779,32 @@ AudioHardware::AudioStreamOutTegra::AudioStreamOutTegra() :
 }
 
 // Called with mHardware->mLock held.
-void AudioHardware::AudioStreamOutTegra::setDriver(bool speaker, bool bluetooth, bool spdif) {
+void AudioHardware::AudioStreamOutTegra::setDriver(bool speaker, bool bluetooth, bool spdif)
+{
     int bit_format = TEGRA_AUDIO_BIT_FORMAT_DEFAULT;
     bool is_bt_bypass = false;
-    Mutex::Autolock lock(mLock);
+
+    // acquire mutex if not already locked by write().
+    if (!mLocked) {
+        mLock.lock();
+    }
+
     LOGV("%s: Analog speaker? %s. Bluetooth? %s. S/PDIF? %s.", __FUNCTION__,
         speaker?"yes":"no", bluetooth?"yes":"no", spdif?"yes":"no");
 
-    if ((mIsBtEnabled && !bluetooth) ||
-        (mIsSpdifEnabled && !spdif))
-        flush();
-    if (mIsSpkrEnabled && !speaker)
-        mHardware->doStandby(mFdCtl, true, true);
-
-    mIsSpkrEnabled = speaker;
-    mIsBtEnabled = bluetooth;
-    mIsSpdifEnabled = spdif;
-    if (mIsBtEnabled) {
-        bit_format = TEGRA_AUDIO_BIT_FORMAT_DSP;
-        is_bt_bypass = true;
+    // force some reconfiguration at next write()
+    if (mState == AUDIO_STREAM_CONFIGURED &&
+        (mIsSpkrEnabled != speaker || mIsBtEnabled != bluetooth || mIsSpdifEnabled != spdif)) {
+        mState = AUDIO_STREAM_CONFIG_REQ;
     }
-    // Setup the I2S2-> DAP2/4 capture/playback path.
-    ::ioctl(mBtFdIoCtl, TEGRA_AUDIO_SET_BIT_FORMAT, &bit_format);
-    ::ioctl(mHardware->mCpcapCtlFd, CPCAP_AUDIO_SET_BLUETOOTH_BYPASS, is_bt_bypass);
+
+    mIsSpkrEnabledReq = speaker;
+    mIsBtEnabledReq = bluetooth;
+    mIsSpdifEnabledReq = spdif;
+
+    if (!mLocked) {
+        mLock.unlock();
+    }
 }
 
 status_t AudioHardware::AudioStreamOutTegra::set(
@@ -835,175 +869,193 @@ AudioHardware::AudioStreamOutTegra::~AudioStreamOutTegra()
 
 ssize_t AudioHardware::AudioStreamOutTegra::write(const void* buffer, size_t bytes)
 {
-    // LOGD("AudioStreamOutTegra::write(%p, %u)", buffer, bytes);
-    int status = NO_INIT;
-    ssize_t written = 0;
-    const uint8_t* p = static_cast<const uint8_t*>(buffer);
-    size_t outsize = bytes;
+    status_t status;
+    if (!mHardware) {
+        LOGE("%s: mHardware is null", __FUNCTION__);
+        return NO_INIT;
+    }
+    // LOGD("AudioStreamOutTegra::write(%p, %u) TID %d", buffer, bytes, gettid());
     // Protect output state during the write process.
     mHardware->mLock.lock();
-    Mutex::Autolock lock(mLock);
-    int outFd = mFd;
-    int outFdCtl = mFdCtl;
-    bool stereo = mIsBtEnabled?false:
-                  (channels() == AudioSystem::CHANNEL_OUT_STEREO);
-    int driverRate;
 
-    status = online(); // if already online, a no-op
-    if (status < 0) {
-        goto error;
-    }
-    driverRate = mHardware->mHwOutRate;
-    mHardware->mLock.unlock();
+    { // scope for the lock
+        Mutex::Autolock lock(mLock);
+
+        ssize_t written = 0;
+        const uint8_t* p = static_cast<const uint8_t*>(buffer);
+        size_t outsize = bytes;
+        int outFd = mFd;
+        int outFdCtl = mFdCtl;
+        bool stereo;
+        int driverRate;
+
+        status = online_l(); // if already online, a no-op
+
+        if (status < 0) {
+            mHardware->mLock.unlock();
+            goto error;
+        }
+        driverRate = mHardware->mHwOutRate;
+        stereo = mIsBtEnabled ? false : (channels() == AudioSystem::CHANNEL_OUT_STEREO);
+
+        mHardware->mLock.unlock();
 
 #ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
-    // Do Multimedia processing if appropriate for device and usecase.
-    mHardware->mAudioPP.doMmProcessing((void *)buffer, bytes / frameSize());
+        // Do Multimedia processing if appropriate for device and usecase.
+        mHardware->mAudioPP.doMmProcessing((void *)buffer, bytes / frameSize());
 #endif
 
-    if (mIsSpkrEnabled && mIsBtEnabled) {
-        // When dual routing to CPCAP and Bluetooth, piggyback CPCAP audio now,
-        // and then down convert for the BT.
-        // CPCAP is always 44.1 in this case.
-        // This also works in the three-way routing case.
-        Mutex::Autolock lock2(mFdLock);
-        ::write(outFd, buffer, outsize);
-    }
-    if (mIsSpkrEnabled && mIsSpdifEnabled) {
-        // When dual routing to Speaker and HDMI, piggyback HDMI now, since it
-        // has no mic we'll leave the rest of the acoustic processing for the
-        // CPCAP hardware path.
-        // This also works in the three-way routing case, except the acoustic
-        // tuning will be done on Bluetooth, since it has the exclusive mic amd
-        // it also needs the sample rate conversion
-        Mutex::Autolock lock2(mFdLock);
-        ::write(mSpdifFd, buffer, outsize);
-    }
-    if (mIsBtEnabled) {
-        outFd = mBtFd;
-        outFdCtl = mBtFdCtl;
-    } else if (mIsSpdifEnabled && !mIsSpkrEnabled) {
-        outFd = mSpdifFd;
-        outFdCtl = mSpdifFdCtl;
-    }
+        if (mIsSpkrEnabled && mIsBtEnabled) {
+            // When dual routing to CPCAP and Bluetooth, piggyback CPCAP audio now,
+            // and then down convert for the BT.
+            // CPCAP is always 44.1 in this case.
+            // This also works in the three-way routing case.
+            Mutex::Autolock lock2(mFdLock);
+            ::write(outFd, buffer, outsize);
+        }
+        if (mIsSpkrEnabled && mIsSpdifEnabled) {
+            // When dual routing to Speaker and HDMI, piggyback HDMI now, since it
+            // has no mic we'll leave the rest of the acoustic processing for the
+            // CPCAP hardware path.
+            // This also works in the three-way routing case, except the acoustic
+            // tuning will be done on Bluetooth, since it has the exclusive mic amd
+            // it also needs the sample rate conversion
+            Mutex::Autolock lock2(mFdLock);
+            ::write(mSpdifFd, buffer, outsize);
+        }
+        if (mIsBtEnabled) {
+            outFd = mBtFd;
+            outFdCtl = mBtFdCtl;
+        } else if (mIsSpdifEnabled && !mIsSpkrEnabled) {
+            outFd = mSpdifFd;
+            outFdCtl = mSpdifFdCtl;
+        }
 
 #ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
-    // Check if sample rate conversion or ECNS are required.
-    // Caution: Upconversion (from 44.1 to 48) would require a new output buffer larger than the
-    // original one.
-    if (driverRate != (int)sampleRate()) {
-        if (!mSrc.initted() ||
-             mSrc.inRate() != (int)sampleRate() ||
-             mSrc.outRate() != driverRate) {
-            LOGI("%s: downconvert started from %d to %d",__FUNCTION__,
-                 sampleRate(), driverRate);
-            mSrc.init(sampleRate(), driverRate);
-            if (!mSrc.initted()) {
-                status = -1;
+        // Check if sample rate conversion or ECNS are required.
+        // Caution: Upconversion (from 44.1 to 48) would require a new output buffer larger than the
+        // original one.
+        if (driverRate != (int)sampleRate()) {
+            if (!mSrc.initted() ||
+                 mSrc.inRate() != (int)sampleRate() ||
+                 mSrc.outRate() != driverRate) {
+                LOGI("%s: downconvert started from %d to %d",__FUNCTION__,
+                     sampleRate(), driverRate);
+                mSrc.init(sampleRate(), driverRate);
+                if (!mSrc.initted()) {
+                    status = -1;
+                    goto error;
+                }
+                // Workaround to give multiple of 4 bytes to driver: Keep one sample
+                // buffered in case SRC returns an odd number of samples.
+                mHaveSpareSample = false;
+            }
+        } else {
+            mSrc.deinit();
+        }
+
+        if (mHardware->mAudioPP.isEcnsEnabled() || mSrc.initted())
+        {
+            // cut audio down to Mono for SRC or ECNS
+            if (channels() == AudioSystem::CHANNEL_OUT_STEREO)
+            {
+                // Do stereo-to-mono downmix before SRC, in-place
+                int16_t *destBuf = (int16_t *) buffer;
+                for (int i = 0; i < (int)bytes/2; i++) {
+                     destBuf[i] = (destBuf[i*2]>>1) + (destBuf[i*2+1]>>1);
+                }
+                outsize >>= 1;
+            }
+        }
+
+        if (mSrc.initted()) {
+            // Apply the sample rate conversion.
+            mSrc.mIoData.in_buf_ch1 = (SRC16 *) (buffer);
+            mSrc.mIoData.in_buf_ch2 = 0;
+            mSrc.mIoData.input_count = outsize / sizeof(SRC16);
+            mSrc.mIoData.out_buf_ch1 = (SRC16 *) (buffer);
+            mSrc.mIoData.out_buf_ch2 = 0;
+            mSrc.mIoData.output_count = outsize / sizeof(SRC16);
+            if (mHaveSpareSample) {
+                // Leave room for placing the spare.
+                mSrc.mIoData.out_buf_ch1++;
+                mSrc.mIoData.output_count--;
+            }
+            mSrc.srcConvert();
+            LOGV("Converted %d bytes at %d to %d bytes at %d",
+                 outsize, sampleRate(), mSrc.mIoData.output_count*2, driverRate);
+            if (mHaveSpareSample) {
+                int16_t *bufp = (int16_t*)buffer;
+                bufp[0]=mSpareSample;
+                mSrc.mIoData.output_count++;
+                mHaveSpareSample = false;
+            }
+            outsize = mSrc.mIoData.output_count*2;
+            LOGV("Outsize is now %d", outsize);
+        }
+        if (mHardware->mAudioPP.isEcnsEnabled()) {
+            // EC/NS is a blocking interface, to synchronise with read.
+            // It also consumes data when EC/NS is running.
+            // It expects MONO data.
+            // If EC/NS is not running, it will return 0, and we need to write this data to the
+            // driver ourselves.
+
+            // Indicate that it is safe to call setDriver() without locking mLock: if the input
+            // stream is started, doRouting_l() will not block when setDriver() is called.
+            mLocked = true;
+            written = mHardware->mAudioPP.writeDownlinkEcns(outFd,(void *)buffer,
+                                                            stereo, outsize, &mFdLock);
+            mLocked = false;
+        }
+        if (mHardware->mAudioPP.isEcnsEnabled() || mSrc.initted()) {
+            // Move audio back up to Stereo, if the EC/NS wasn't in fact running and we're
+            // writing to a stereo device.
+            if (stereo &&
+                written != (ssize_t)outsize) {
+                // Back up to stereo, in place.
+                int16_t *destBuf = (int16_t *) buffer;
+                for (int i = outsize/2-1; i >= 0; i--) {
+                    destBuf[i*2] = destBuf[i];
+                    destBuf[i*2+1] = destBuf[i];
+                }
+                outsize <<= 1;
+            }
+        }
+#endif
+
+        if (written != (ssize_t)outsize) {
+            // The sample rate conversion modifies the output size.
+            if (outsize&0x3) {
+                int16_t* bufp = (int16_t *)buffer;
+                LOGV("Keep the spare sample away from the driver.");
+                mHaveSpareSample = true;
+                mSpareSample = bufp[outsize/2 - 1];
+            }
+
+            Mutex::Autolock lock2(mFdLock);
+            written = ::write(outFd, buffer, outsize&(~0x3));
+            if (written != ((ssize_t)outsize&(~0x3))) {
+                status = written;
                 goto error;
             }
-            // Workaround to give multiple of 4 bytes to driver: Keep one sample
-            // buffered in case SRC returns an odd number of samples.
-            mHaveSpareSample = false;
         }
-    } else {
-        mSrc.deinit();
-    }
-
-    if (mHardware->mAudioPP.isEcnsEnabled() || mSrc.initted())
-    {
-        // cut audio down to Mono for SRC or ECNS
-        if (channels() == AudioSystem::CHANNEL_OUT_STEREO)
-        {
-            // Do stereo-to-mono downmix before SRC, in-place
-            int16_t *destBuf = (int16_t *) buffer;
-            for (int i = 0; i < (int)bytes/2; i++) {
-                 destBuf[i] = (destBuf[i*2]>>1) + (destBuf[i*2+1]>>1);
-            }
-            outsize >>= 1;
-        }
-    }
-
-    if (mSrc.initted()) {
-        // Apply the sample rate conversion.
-        mSrc.mIoData.in_buf_ch1 = (SRC16 *) (buffer);
-        mSrc.mIoData.in_buf_ch2 = 0;
-        mSrc.mIoData.input_count = outsize / sizeof(SRC16);
-        mSrc.mIoData.out_buf_ch1 = (SRC16 *) (buffer);
-        mSrc.mIoData.out_buf_ch2 = 0;
-        mSrc.mIoData.output_count = outsize / sizeof(SRC16);
-        if (mHaveSpareSample) {
-            // Leave room for placing the spare.
-            mSrc.mIoData.out_buf_ch1++;
-            mSrc.mIoData.output_count--;
-        }
-        mSrc.srcConvert();
-        LOGV("Converted %d bytes at %d to %d bytes at %d",
-             outsize, sampleRate(), mSrc.mIoData.output_count*2, driverRate);
-        if (mHaveSpareSample) {
-            int16_t *bufp = (int16_t*)buffer;
-            bufp[0]=mSpareSample;
-            mSrc.mIoData.output_count++;
-            mHaveSpareSample = false;
-        }
-        outsize = mSrc.mIoData.output_count*2;
-        LOGV("Outsize is now %d", outsize);
-    }
-    if (mHardware->mAudioPP.isEcnsEnabled()) {
-        // EC/NS is a blocking interface, to synchronise with read.
-        // It also consumes data when EC/NS is running.
-        // It expects MONO data.
-        // If EC/NS is not running, it will return 0, and we need to write this data to the
-        // driver ourselves.
-        mLock.unlock();
-        // Don't call writeDownlinkEcns() with the lock held, or else the
-        // read thread will block on dorouting / setdevice, and we'll block on
-        // the read thread (and timeout after 1 sec).
-        written = mHardware->mAudioPP.writeDownlinkEcns(outFd,(void *)buffer,
-                                                        stereo, outsize, &mFdLock);
-        mLock.lock();
-    }
-    if (mHardware->mAudioPP.isEcnsEnabled() || mSrc.initted()) {
-        // Move audio back up to Stereo, if the EC/NS wasn't in fact running and we're
-        // writing to a stereo device.
-        if (stereo &&
-            written != (ssize_t)outsize) {
-            // Back up to stereo, in place.
-            int16_t *destBuf = (int16_t *) buffer;
-            for (int i = outsize/2-1; i >= 0; i--) {
-                destBuf[i*2] = destBuf[i];
-                destBuf[i*2+1] = destBuf[i];
-            }
-            outsize <<= 1;
-        }
-    }
-#endif
-
-    if (written != (ssize_t)outsize) {
-        // The sample rate conversion modifies the output size.
-        if (outsize&0x3) {
-            int16_t* bufp = (int16_t *)buffer;
-            LOGV("Keep the spare sample away from the driver.");
-            mHaveSpareSample = true;
-            mSpareSample = bufp[outsize/2 - 1];
-        }
-        Mutex::Autolock lock2(mFdLock);
-        written = ::write(outFd, buffer, outsize&(~0x3));
-        if (written != ((ssize_t)outsize&(~0x3))) {
+        if (written < 0) {
+            LOGE("Error writing %d bytes to output: %s", outsize, strerror(errno));
             status = written;
             goto error;
         }
+
+        // Sample rate converter may be stashing a couple of bytes here or there,
+        // so just report that all bytes were consumed. (it would be a bug not to.)
+        LOGV("write() written %d", bytes);
+        return bytes;
+
     }
-    if (written < 0)
-        LOGE("Error writing %d bytes to output: %s", outsize, strerror(errno));
-
-    // Sample rate converter may be stashing a couple of bytes here or there,
-    // so just report that all bytes were consumed. (it would be a bug not to.)
-    return (written>0)?bytes:0;
-
 error:
     LOGE("write(): error, return %d", status);
+    standby();
     usleep(bytes * 1000 / frameSize() / sampleRate() * 1000);
+
     return status;
 }
 
@@ -1022,39 +1074,93 @@ void AudioHardware::AudioStreamOutTegra::flush()
 }
 
 // Called with mLock and mHardware->mLock held
-status_t AudioHardware::AudioStreamOutTegra::online()
+status_t AudioHardware::AudioStreamOutTegra::online_l()
 {
-    // Return if the speaker is already on and the output path.
-    if (mIsSpkrEnabled && mHardware->mCurOutDevice.on)
-        return NO_ERROR;
+    status_t status = NO_ERROR;
 
-    // If there's no hardware speaker, leave the HW alone. (i.e. SCO/SPDIF is on)
-    if (!mIsSpkrEnabled)
-        return NO_ERROR;
+    if (mState < AUDIO_STREAM_CONFIGURED) {
+        if (mState == AUDIO_STREAM_IDLE) {
+            LOGV("output %p going online", this);
+            mState = AUDIO_STREAM_CONFIG_REQ;
+            // update EC state if necessary
+            AudioStreamInTegra *input = mHardware->getActiveInput_l();
+            if (mHardware->isInCall() &&
+                input && input->source() == AUDIO_SOURCE_VOICE_COMMUNICATION) {
+                // setDriver() will not try to lock mLock when called by doRouting_l()
+                mLocked = true;
+                mHardware->doRouting_l();
+                mLocked = false;
+            }
+        }
 
-    LOGV("output %p going online", this);
+        // If there's no hardware speaker, leave the HW alone. (i.e. SCO/SPDIF is on)
+        if (mIsSpkrEnabledReq) {
+            status = mHardware->doStandby(mFdCtl, true, false); // output, online
+        } else {
+            status = mHardware->doStandby(mFdCtl, true, true); // output, standby
+        }
+        mIsSpkrEnabled = mIsSpkrEnabledReq;
 
-    return mHardware->doStandby(mFdCtl, true, false); // output, online
+        if ((mIsBtEnabled && !mIsBtEnabledReq) ||
+            (mIsSpdifEnabled && !mIsSpdifEnabledReq)) {
+            flush();
+        }
+        mIsBtEnabled = mIsBtEnabledReq;
+        mIsSpdifEnabled = mIsSpdifEnabledReq;
+
+        int bit_format = TEGRA_AUDIO_BIT_FORMAT_DEFAULT;
+        bool is_bt_bypass = false;
+        if (mIsBtEnabled) {
+            bit_format = TEGRA_AUDIO_BIT_FORMAT_DSP;
+            is_bt_bypass = true;
+        }
+        // Setup the I2S2-> DAP2/4 capture/playback path.
+        ::ioctl(mBtFdIoCtl, TEGRA_AUDIO_SET_BIT_FORMAT, &bit_format);
+        ::ioctl(mHardware->mCpcapCtlFd, CPCAP_AUDIO_SET_BLUETOOTH_BYPASS, is_bt_bypass);
+
+        mState = AUDIO_STREAM_CONFIGURED;
+    }
+
+    return status;
 }
 
 status_t AudioHardware::AudioStreamOutTegra::standby()
 {
+    if (!mHardware) {
+        return NO_INIT;
+    }
+
     status_t status = NO_ERROR;
     Mutex::Autolock lock(mHardware->mLock);
+    Mutex::Autolock lock2(mLock);
 
-    LOGV("output %p going into standby", this);
+    if (mState != AUDIO_STREAM_IDLE) {
+        LOGV("output %p going into standby", this);
+        mState = AUDIO_STREAM_IDLE;
+
+        // update EC state if necessary
+        AudioStreamInTegra *input = mHardware->getActiveInput_l();
+        if (mHardware->isInCall() &&
+            input && input->source() == AUDIO_SOURCE_VOICE_COMMUNICATION) {
+            // setDriver() will not try to lock mLock when called by doRouting_l()
+            mLocked = true;
+            mHardware->doRouting_l();
+            mLocked = false;
+        }
 
 #ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
     // Prevent EC/NS from writing to the file anymore.
-    mHardware->mAudioPP.writeDownlinkEcns(-1,0,false,0,&mFdLock);
+        mHardware->mAudioPP.writeDownlinkEcns(-1,0,false,0,&mFdLock);
 #endif
-    if (mHardware->mCurOutDevice.on) {
-        // doStandby() calls flush() which also handles the case where multiple devices
-        // including bluetooth or SPDIF are selected
-        status = mHardware->doStandby(mFdCtl, true, true); // output, standby
-    } else if (mIsBtEnabled || mIsSpdifEnabled) {
-        flush();
+        if (mIsSpkrEnabled) {
+            // doStandby() calls flush() which also handles the case where multiple devices
+            // including bluetooth or SPDIF are selected
+            status = mHardware->doStandby(mFdCtl, true, true); // output, standby
+        } else if (mIsBtEnabled || mIsSpdifEnabled) {
+            flush();
+        }
     }
+
     return status;
 }
 
@@ -1093,7 +1199,7 @@ status_t AudioHardware::AudioStreamOutTegra::dump(int fd, const Vector<String16>
 
 bool AudioHardware::AudioStreamOutTegra::getStandby()
 {
-    return mHardware ? !mHardware->mCurOutDevice.on : true;
+    return mState == AUDIO_STREAM_IDLE;;
 }
 
 status_t AudioHardware::AudioStreamOutTegra::setParameters(const String8& keyValuePairs)
@@ -1143,11 +1249,12 @@ status_t AudioHardware::AudioStreamOutTegra::getRenderPosition(uint32_t *dspFram
 // ----------------------------------------------------------------------------
 
 AudioHardware::AudioStreamInTegra::AudioStreamInTegra() :
-    mHardware(0), mFd(-1), mFdCtl(-1), mState(AUDIO_INPUT_CLOSED), mRetryCount(0),
+    mHardware(0), mFd(-1), mFdCtl(-1), mState(AUDIO_STREAM_IDLE), mRetryCount(0),
     mFormat(AUDIO_HW_IN_FORMAT), mChannels(AUDIO_HW_IN_CHANNELS),
     mSampleRate(AUDIO_HW_IN_SAMPLERATE), mBufferSize(AUDIO_HW_IN_BUFFERSIZE),
     mAcoustics((AudioSystem::audio_in_acoustics)0), mDevices(0),
-    mIsMicEnabled(0), mIsBtEnabled(0)
+    mIsMicEnabled(0), mIsBtEnabled(0),
+    mSource(AUDIO_SOURCE_DEFAULT), mLocked(false)
 {
 }
 
@@ -1194,7 +1301,6 @@ status_t AudioHardware::AudioStreamInTegra::set(
     mSampleRate = *pRate;
     mBufferSize = mHardware->getInputBufferSize(mSampleRate, AudioSystem::PCM_16_BIT,
                                                 AudioSystem::popCount(mChannels));
-    mNeedsOnline = true;
     return NO_ERROR;
 }
 
@@ -1214,189 +1320,216 @@ AudioHardware::AudioStreamInTegra::~AudioStreamInTegra()
 // Called with mHardware->mLock held.
 void AudioHardware::AudioStreamInTegra::setDriver(bool mic, bool bluetooth)
 {
-    Mutex::Autolock lock(mLock);
+    // acquire mutex if not already locked by read().
+    if (!mLocked) {
+        mLock.lock();
+    }
     LOGD("%s: Analog mic? %s. Bluetooth? %s.", __FUNCTION__,
             mic?"yes":"no", bluetooth?"yes":"no");
 
-    if (mic != mIsMicEnabled || bluetooth != mIsBtEnabled)
-        mNeedsOnline = true;
+    // force some reconfiguration at next read()
+    // Note: mState always == AUDIO_STREAM_CONFIGURED when setDriver() is called on an input
+    if (mic != mIsMicEnabled || bluetooth != mIsBtEnabled) {
+        mState = AUDIO_STREAM_CONFIG_REQ;
+    }
 
     mIsMicEnabled = mic;
     mIsBtEnabled = bluetooth;
+
+    if (!mLocked) {
+        mLock.unlock();
+    }
 }
 
 ssize_t AudioHardware::AudioStreamInTegra::read(void* buffer, ssize_t bytes)
 {
-    ssize_t ret;
-    ssize_t ret2 = 0;
-    int driverRate;
-    LOGV("AudioStreamInTegra::read(%p, %ld)", buffer, bytes);
+    status_t status;
     if (!mHardware) {
         LOGE("%s: mHardware is null", __FUNCTION__);
-        return -1;
+        return NO_INIT;
     }
-    bool srcReqd;
-    int  hwReadBytes;
-    int16_t * inbuf;
+    // LOGV("AudioStreamInTegra::read(%p, %ld) TID %d", buffer, bytes, gettid());
 
     mHardware->mLock.lock();
-    Mutex::Autolock lock(mLock);
-    if (mState < AUDIO_INPUT_STARTED) {
-        mState = AUDIO_INPUT_STARTED;
-        // Unlock since doRouting_l will call setDriver
-        mLock.unlock();
-        mHardware->doRouting_l();
-        mLock.lock();
-    }
 
-    ret = online();
-    if (ret != NO_ERROR) {
-       LOGE("%s: Problem switching to online.",__FUNCTION__);
-       mHardware->mLock.unlock();
-       return -1;
-    }
-    // Snapshot of the driver rate to stay coherent in this function
-    driverRate = mHardware->mHwInRate;
-    mHardware->mLock.unlock();
+    {   // scope for mLock
+        Mutex::Autolock lock(mLock);
 
-    srcReqd = (driverRate != (int)mSampleRate);
+        ssize_t ret;
+        int driverRate;
+        bool srcReqd;
+        int  hwReadBytes;
+        int16_t * inbuf;
+
+        status = online_l();
+        if (status != NO_ERROR) {
+           LOGE("%s: Problem switching to online.",__FUNCTION__);
+           mHardware->mLock.unlock();
+           goto error;
+        }
+        // Snapshot of the driver rate to stay coherent in this function
+        driverRate = mHardware->mHwInRate;
+        mHardware->mLock.unlock();
+
+        srcReqd = (driverRate != (int)mSampleRate);
 
 #ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
-    if (srcReqd) {
-        hwReadBytes = ( bytes*driverRate/mSampleRate ) & (~0x7);
-        LOGV("Running capture SRC.  HW=%d bytes at %d, Flinger=%d bytes at %d",
-              hwReadBytes, driverRate, (int)bytes, mSampleRate);
-        inbuf = mInScratch;
-        if ((size_t)bytes > sizeof(mInScratch)) {
-            LOGE("read: buf size problem. %d>%d",(int)bytes,sizeof(mInScratch));
-            return -1;
+        if (srcReqd) {
+            hwReadBytes = ( bytes*driverRate/mSampleRate ) & (~0x7);
+            LOGV("Running capture SRC.  HW=%d bytes at %d, Flinger=%d bytes at %d",
+                  hwReadBytes, driverRate, (int)bytes, mSampleRate);
+            inbuf = mInScratch;
+            if ((size_t)bytes > sizeof(mInScratch)) {
+                LOGE("read: buf size problem. %d>%d",(int)bytes,sizeof(mInScratch));
+                status = BAD_VALUE;
+                goto error;
+            }
+            // Check if we need to init the rate converter
+            if (!mSrc.initted() ||
+                 mSrc.inRate() != driverRate ||
+                 mSrc.outRate() != (int)mSampleRate) {
+                LOGI ("%s: Upconvert started from %d to %d", __FUNCTION__,
+                       driverRate, mSampleRate);
+                mSrc.init(driverRate, mSampleRate);
+                if (!mSrc.initted()) {
+                    status = NO_INIT;
+                    goto error;
+                }
+                reopenReconfigDriver();
+            }
+        } else {
+            hwReadBytes = bytes;
+            inbuf = (int16_t *)buffer;
+            mSrc.deinit();
         }
-        // Check if we need to init the rate converter
-        if (!mSrc.initted() ||
-             mSrc.inRate() != driverRate ||
-             mSrc.outRate() != (int)mSampleRate) {
-            LOGI ("%s: Upconvert started from %d to %d", __FUNCTION__,
-                   driverRate, mSampleRate);
-            mSrc.init(driverRate, mSampleRate);
-            if (!mSrc.initted())
-                return -1;
-            reopenReconfigDriver();
+        // Read from driver, or ECNS thread, as appropriate.
+        ret = mHardware->mAudioPP.read(mFd, inbuf, hwReadBytes, driverRate);
+        if (ret>0 && srcReqd) {
+            mSrc.mIoData.in_buf_ch1 = (SRC16 *) (inbuf);
+            mSrc.mIoData.in_buf_ch2 = 0;
+            mSrc.mIoData.input_count = hwReadBytes / sizeof(SRC16);
+            mSrc.mIoData.out_buf_ch1 = (SRC16 *) (buffer);
+            mSrc.mIoData.out_buf_ch2 = 0;
+            mSrc.mIoData.output_count = bytes/sizeof(SRC16);
+            mSrc.srcConvert();
+            ret = mSrc.mIoData.output_count*sizeof(SRC16);
+            if (ret > bytes) {
+                LOGE("read: buffer overrun");
+            }
         }
-    } else {
-        hwReadBytes = bytes;
-        inbuf = (int16_t *)buffer;
-        mSrc.deinit();
-    }
-    // Read from driver, or ECNS thread, as appropriate.
-    ret = mHardware->mAudioPP.read(mFd, inbuf, hwReadBytes, driverRate);
-    if (ret>0 && srcReqd) {
-        mSrc.mIoData.in_buf_ch1 = (SRC16 *) (inbuf);
-        mSrc.mIoData.in_buf_ch2 = 0;
-        mSrc.mIoData.input_count = hwReadBytes / sizeof(SRC16);
-        mSrc.mIoData.out_buf_ch1 = (SRC16 *) (buffer);
-        mSrc.mIoData.out_buf_ch2 = 0;
-        mSrc.mIoData.output_count = bytes/sizeof(SRC16);
-        mSrc.srcConvert();
-        ret = mSrc.mIoData.output_count*sizeof(SRC16);
-        if (ret > bytes) {
-            LOGE("read: buffer overrun");
-        }
-    }
 #else
-    if (srcReqd) {
-        LOGE("%s: sample rate mismatch HAL %d, driver %d",
-             __FUNCTION__, mSampleRate, driverRate);
-        return -1;
-    }
-    ret = ::read(mFd, buffer, hwReadBytes);
+        if (srcReqd) {
+            LOGE("%s: sample rate mismatch HAL %d, driver %d",
+                 __FUNCTION__, mSampleRate, driverRate);
+            status = INVALID_OPERATION;
+            goto error;
+        }
+        ret = ::read(mFd, buffer, hwReadBytes);
 #endif
 
-    // It is not optimal to mute after all the above processing but it is necessary to
-    // keep the clock sync from input device. It also avoids glitches on output streams due
-    // to EC being turned on and off
-    bool muted;
-    mHardware->getMicMute(&muted);
-    if (muted) {
-        LOGV("%s muted",__FUNCTION__);
-        memset(buffer, 0, bytes);
+        // It is not optimal to mute after all the above processing but it is necessary to
+        // keep the clock sync from input device. It also avoids glitches on output streams due
+        // to EC being turned on and off
+        bool muted;
+        mHardware->getMicMute(&muted);
+        if (muted) {
+            LOGV("%s muted",__FUNCTION__);
+            memset(buffer, 0, bytes);
+        }
+
+        LOGV("%s returns %d.",__FUNCTION__, (int)ret);
+        if (ret < 0) {
+            status = ret;
+            goto error;
+        }
+        return ret;
     }
 
-    LOGV("%s returns %d.",__FUNCTION__, (int)ret);
-    return ret;
+error:
+    LOGE("read(): error, return %d", status);
+    standby();
+    usleep(bytes * 1000 / frameSize() / sampleRate() * 1000);
+    return status;
 }
 
 bool AudioHardware::AudioStreamInTegra::getStandby()
 {
-    return mState == AUDIO_INPUT_CLOSED;
+    return mState == AUDIO_STREAM_IDLE;
 }
 
 status_t AudioHardware::AudioStreamInTegra::standby()
 {
+    if (!mHardware) {
+        return NO_INIT;
+    }
+
     Mutex::Autolock lock(mHardware->mLock);
     Mutex::Autolock lock2(mLock);
-    mState = AUDIO_INPUT_CLOSED;
+    status_t status = NO_ERROR;
+    if (mState != AUDIO_STREAM_IDLE) {
+        LOGV("input %p going into standby", this);
+        mState = AUDIO_STREAM_IDLE;
+        // setDriver() will not try to lock mLock when called by doRouting_l()
+        mLocked = true;
+        mHardware->doRouting_l();
+        mLocked = false;
+        status = mHardware->doStandby(mFdCtl, false, true); // input, standby
+    }
 
-    if (!mHardware)
-        return -1;
-
-    LOGV("input %p going into standby", this);
-
-    mLock.unlock();
-    mHardware->doRouting_l();
-    mLock.lock();
-    return mHardware->doStandby(mFdCtl, false, true); // input, standby
+    return status;
 }
 
 // Called with mLock and mHardware->mLock held
-status_t AudioHardware::AudioStreamInTegra::online()
+status_t AudioHardware::AudioStreamInTegra::online_l()
 {
-    status_t status;
+    status_t status = NO_ERROR;
 
-    if (mNeedsOnline) {
-        // Don't no-op this function.
-        mNeedsOnline = false;
-    } else {
-        if (mIsMicEnabled && mHardware->mCurInDevice.on) {
-            return NO_ERROR;
+    if (mState < AUDIO_STREAM_CONFIGURED) {
+
+        reopenReconfigDriver();
+
+        // configuration
+        struct tegra_audio_in_config config;
+        status = ::ioctl(mFdCtl, TEGRA_AUDIO_IN_GET_CONFIG, &config);
+        if (status < 0) {
+            LOGE("cannot read input config: %s", strerror(errno));
+            return status;
         }
-        if (!mIsMicEnabled && !mHardware->mCurInDevice.on)
-            return NO_ERROR;
-    }
+        config.stereo = AudioSystem::popCount(mChannels) == 2;
+        config.rate = mSampleRate;
+        status = ::ioctl(mFdCtl, TEGRA_AUDIO_IN_SET_CONFIG, &config);
 
-    LOGV("input %p going online", this);
-
-    reopenReconfigDriver();
-
-    // configuration
-    struct tegra_audio_in_config config;
-    status = ::ioctl(mFdCtl, TEGRA_AUDIO_IN_GET_CONFIG, &config);
-    if (status < 0) {
-        LOGE("cannot read input config: %s", strerror(errno));
-        return status;
-    }
-    config.stereo = AudioSystem::popCount(mChannels) == 2;
-    config.rate = mSampleRate;
-    status = ::ioctl(mFdCtl, TEGRA_AUDIO_IN_SET_CONFIG, &config);
-
-    if (status < 0) {
-        LOGE("cannot set input config: %s", strerror(errno));
-        if (::ioctl(mFdCtl, TEGRA_AUDIO_IN_GET_CONFIG, &config) == 0) {
-            if (config.stereo) {
-                mChannels = AudioSystem::CHANNEL_IN_STEREO;
-            } else {
-                mChannels = AudioSystem::CHANNEL_IN_MONO;
+        if (status < 0) {
+            LOGE("cannot set input config: %s", strerror(errno));
+            if (::ioctl(mFdCtl, TEGRA_AUDIO_IN_GET_CONFIG, &config) == 0) {
+                if (config.stereo) {
+                    mChannels = AudioSystem::CHANNEL_IN_STEREO;
+                } else {
+                    mChannels = AudioSystem::CHANNEL_IN_MONO;
+                }
             }
         }
+
+        // Use standby to flush the driver.  mHardware->mLock should already be held
+
+        mHardware->doStandby(mFdCtl, false, true);
+        if (mDevices & ~AudioSystem::DEVICE_IN_BLUETOOTH_SCO_HEADSET) {
+            status = mHardware->doStandby(mFdCtl, false, false);
+        }
+
+        if (mState == AUDIO_STREAM_IDLE) {
+            mState = AUDIO_STREAM_CONFIG_REQ;
+            LOGV("input %p going online", this);
+            // setDriver() will not try to lock mLock when called by doRouting_l()
+            mLocked = true;
+            mHardware->doRouting_l();
+            mLocked = false;
+        }
+
+        mState = AUDIO_STREAM_CONFIGURED;
     }
 
-    mState = AUDIO_INPUT_OPENED;
-
-    // Use standby to flush the driver.  mHardware->mLock should already be held
-    mHardware->doStandby(mFdCtl, false, true);
-    if (mIsMicEnabled)
-        return mHardware->doStandby(mFdCtl, false, false);
-    else
-        return NO_ERROR;
+    return status;
 }
 
 void AudioHardware::AudioStreamInTegra::reopenReconfigDriver()
@@ -1445,7 +1578,14 @@ status_t AudioHardware::AudioStreamInTegra::setParameters(const String8& keyValu
     String8 key = String8(AudioParameter::keyRouting);
     status_t status = NO_ERROR;
     int device;
+    int source;
     LOGV("AudioStreamInTegra::setParameters() %s", keyValuePairs.string());
+
+    // read source before device so that it is upto date when doRouting() is called
+    if (param.getInt(String8(AudioParameter::keyInputSource), source) == NO_ERROR) {
+        mSource = source;
+        param.remove(String8(AudioParameter::keyInputSource));
+    }
 
     if (param.getInt(key, device) == NO_ERROR) {
         LOGV("set input routing %x", device);
