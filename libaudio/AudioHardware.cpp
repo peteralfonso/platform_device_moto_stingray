@@ -359,8 +359,20 @@ status_t AudioHardware::setParameters(const String8& keyValuePairs)
 
 String8 AudioHardware::getParameters(const String8& keys)
 {
-    AudioParameter param = AudioParameter(keys);
-    return param.toString();
+    AudioParameter request = AudioParameter(keys);
+    AudioParameter reply = AudioParameter();
+    String8 value;
+    String8 key;
+
+    LOGV("getParameters() %s", keys.string());
+
+    key = "ec_supported";
+    if (request.get(key, value) == NO_ERROR) {
+        value = "yes";
+        reply.add(key, value);
+    }
+
+    return reply.toString();
 }
 
 size_t AudioHardware::getInputBufferSize(uint32_t sampleRate, int format, int channelCount)
