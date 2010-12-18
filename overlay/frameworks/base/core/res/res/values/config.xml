@@ -188,4 +188,16 @@
     <!-- Number of database connections opened and managed by framework layer
          to handle queries on each database. -->
     <integer name="db_connection_pool_size">3</integer>
+
+    <!-- Max space (in MB) allocated to DownloadManager to store the downloaded files
+         if they are to be stored in DownloadManager's data dir,
+         which typically is /data/data/com.android.providers.downloads/files. -->
+    <integer name="config_downloadDataDirSize">200</integer>
+
+    <!-- When the free space available in DownloadManager's data dir falls
+         below the percentage value specified by this param, DownloadManager
+         starts removing files to try to make percentage of available
+         free space above this threshold value. --> 
+    <integer name="config_downloadDataDirLowSpaceThreshold">10</integer>
+
 </resources>
