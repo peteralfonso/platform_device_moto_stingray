@@ -200,7 +200,4 @@
          free space above this threshold value. --> 
     <integer name="config_downloadDataDirLowSpaceThreshold">10</integer>
 
-    <!-- When a database query is executed, the results retuned are paginated
-         in pages of size (in KB) indicated by this value -->
-    <integer name="config_cursorWindowSize">2048</integer>
 </resources>
