@@ -77,9 +77,11 @@ on boot
     chmod 666 /dev/nvhost-mpe
     chmod 666 /dev/nvhost-vi
 
-# Camera flash
+# Camera
+    chown media camera /sys/class/leds/privacy-led/brightness
     chown media camera /sys/class/leds/flash/brightness
     chown media camera /sys/class/leds/torch/brightness
+    chmod 660 /sys/class/leds/privacy-led/brightness
     chmod 660 /sys/class/leds/flash/brightness
     chmod 660 /sys/class/leds/torch/brightness
 
