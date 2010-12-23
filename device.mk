@@ -19,9 +19,9 @@ DEVICE_PACKAGE_OVERLAYS := \
 
 PRODUCT_PROPERTY_OVERRIDES := \
     wifi.interface=eth0 \
-    wifi.supplicant_scan_interval=15 \
-    dalvik.vm.heapstartsize=5m \
-    dalvik.vm.heapsize=48m
+    wifi.supplicant_scan_interval=15
+    
+include frameworks/base/build/tablet-dalvik-heap.mk
 
 PRODUCT_COPY_FILES += \
     device/moto/stingray/bcm4329.ko:system/lib/modules/bcm4329.ko \
