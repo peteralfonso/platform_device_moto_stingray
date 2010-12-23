@@ -121,9 +121,6 @@ on boot
     # No need to continuously scan w1 bus
     write /sys/devices/w1\ bus\ master/w1_master_search 1
 
-    # HACK prevent LP0
-    write /d/suspend_mode lp1
-
 # Ecompass daemon
 service akmd2 /system/bin/akmd2
     class late_start
