@@ -18,7 +18,7 @@ DEVICE_PACKAGE_OVERLAYS := \
     device/moto/stingray/overlay
 
 PRODUCT_PROPERTY_OVERRIDES := \
-    wifi.interface=eth0 \
+    wifi.interface=wlan0 \
     wifi.supplicant_scan_interval=15
     
 include frameworks/base/build/tablet-dalvik-heap.mk
