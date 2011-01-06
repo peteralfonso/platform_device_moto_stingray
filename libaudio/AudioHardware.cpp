@@ -366,11 +366,13 @@ String8 AudioHardware::getParameters(const String8& keys)
 
     LOGV("getParameters() %s", keys.string());
 
+#ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
     key = "ec_supported";
     if (request.get(key, value) == NO_ERROR) {
         value = "yes";
         reply.add(key, value);
     }
+#endif
 
     return reply.toString();
 }
