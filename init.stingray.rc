@@ -214,6 +214,18 @@ service savebpver /system/bin/savebpver
 on property:dev.bootcomplete=1
    start savebpver
 
+service gadget-lte-modem /system/bin/tty2ttyd /dev/ttyACM0 /dev/ttyGS0 0 512
+    oneshot
+    disabled
+
+service gadget-qbp-modem /system/bin/tty2ttyd /dev/ttyUSB4 /dev/ttyGS1 0 1024
+    oneshot
+    disabled
+
+service gadget-qbp-diag /system/bin/tty2ttyd /dev/ttyUSB0 /dev/ttyGS2 0 1024
+    oneshot
+    disabled
+
 on property:ro.bootmode=factorycable
     start tcmd
     start ftmipcd
@@ -221,6 +233,23 @@ on property:ro.bootmode=factorycable
 
 on property:ro.bootmode=qbp-hw-bypass
     setprop ril.moto-qc.usb-hw-bypass.state "on"
+
+on property:ro.bootmode=bp-tools
+    start tcmd
+    start gadget-lte-modem
+    setprop ril.moto-qc.port.diag.owner "gadget"
+
+on property:ril.moto-qc.port.diag.owner=gadget
+    start gadget-qbp-diag
+
+on property:ril.moto-qc.port.modem.owner=gadget
+    stop ril-daemon
+    start gadget-qbp-modem
+    start ril-daemon
+
+on property:ril.moto-qc.port.modem.owner=rild
+    stop gadget-qbp-modem
+    start ril-daemon
 
 service wlan_prod /system/bin/insmod /system/lib/modules/bcm4329.ko "firmware_path=/vendor/firmware/fw_bcm4329.bin nvram_path=/system/etc/wifi/bcm4329.cal"
     group wifi mot_tcmd system
