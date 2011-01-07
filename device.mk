@@ -29,7 +29,8 @@ PRODUCT_COPY_FILES += \
     device/moto/stingray/mXT1386_08_E1.bin:system/etc/firmware/mXT1386_08_E1.bin \
     device/moto/stingray/mXT1386_09_AA.bin:system/etc/firmware/mXT1386_09_AA.bin \
     device/moto/stingray/mXT1386_10_AA.bin:system/etc/firmware/mXT1386_10_AA.bin \
-    device/moto/stingray/ril/tty2ttyd:system/bin/tty2ttyd
+    device/moto/stingray/ril/tty2ttyd:system/bin/tty2ttyd \
+    device/moto/stingray/mXT1386_10_FF.bin:system/etc/firmware/mXT1386_10_FF.bin
 
 PRODUCT_COPY_FILES += \
     frameworks/base/data/etc/tablet_core_hardware.xml:system/etc/permissions/tablet_core_hardware.xml \
