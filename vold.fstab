@@ -1,4 +1,4 @@
-## Vold 2.0 fstab for Harmony
+## Vold 2.0 fstab for Stingray
 
 #######################
 ## Regular device mount
@@ -10,6 +10,4 @@
 ## <sysfs_path> - List of sysfs paths to source devices
 ######################
 
-# Mounts the first usable partition of the specified device
-dev_mount sdcard /mnt/sdcard auto /devices/platform/sdhci-tegra.1/mmc_host/mmc0
- /devices/platform/sdhci-tegra.3/mmc_host/mmc0
+# No SD card - nothing to do here
