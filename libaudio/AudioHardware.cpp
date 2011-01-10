@@ -899,9 +899,9 @@ ssize_t AudioHardware::AudioStreamOutTegra::write(const void* buffer, size_t byt
         const uint8_t* p = static_cast<const uint8_t*>(buffer);
         size_t outsize = bytes;
         int outFd = mFd;
-        int outFdCtl = mFdCtl;
         bool stereo;
         int driverRate;
+        ssize_t writtenToSpdif = 0;
 
         status = online_l(); // if already online, a no-op
 
@@ -927,7 +927,7 @@ ssize_t AudioHardware::AudioStreamOutTegra::write(const void* buffer, size_t byt
             Mutex::Autolock lock2(mFdLock);
             ::write(outFd, buffer, outsize);
         }
-        if (mIsSpkrEnabled && mIsSpdifEnabled) {
+        if (mIsSpdifEnabled) {
             // When dual routing to Speaker and HDMI, piggyback HDMI now, since it
             // has no mic we'll leave the rest of the acoustic processing for the
             // CPCAP hardware path.
@@ -935,14 +935,13 @@ ssize_t AudioHardware::AudioStreamOutTegra::write(const void* buffer, size_t byt
             // tuning will be done on Bluetooth, since it has the exclusive mic amd
             // it also needs the sample rate conversion
             Mutex::Autolock lock2(mFdLock);
-            ::write(mSpdifFd, buffer, outsize);
+            writtenToSpdif = ::write(mSpdifFd, buffer, outsize);
+            LOGV("%s: written %d bytes to SPDIF", __FUNCTION__, writtenToSpdif);
         }
         if (mIsBtEnabled) {
             outFd = mBtFd;
-            outFdCtl = mBtFdCtl;
         } else if (mIsSpdifEnabled && !mIsSpkrEnabled) {
-            outFd = mSpdifFd;
-            outFdCtl = mSpdifFdCtl;
+            outFd = -1;
         }
 
 #ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
@@ -1017,6 +1016,7 @@ ssize_t AudioHardware::AudioStreamOutTegra::write(const void* buffer, size_t byt
             // Indicate that it is safe to call setDriver() without locking mLock: if the input
             // stream is started, doRouting_l() will not block when setDriver() is called.
             mLocked = true;
+            LOGV("writeDownlinkEcns size %d", outsize);
             written = mHardware->mAudioPP.writeDownlinkEcns(outFd,(void *)buffer,
                                                             stereo, outsize, &mFdLock);
             mLocked = false;
@@ -1046,11 +1046,15 @@ ssize_t AudioHardware::AudioStreamOutTegra::write(const void* buffer, size_t byt
                 mSpareSample = bufp[outsize/2 - 1];
             }
 
-            Mutex::Autolock lock2(mFdLock);
-            written = ::write(outFd, buffer, outsize&(~0x3));
-            if (written != ((ssize_t)outsize&(~0x3))) {
-                status = written;
-                goto error;
+            if (outFd != -1) {
+                Mutex::Autolock lock2(mFdLock);
+                written = ::write(outFd, buffer, outsize&(~0x3));
+                if (written != ((ssize_t)outsize&(~0x3))) {
+                    status = written;
+                    goto error;
+                }
+            } else {
+                written = writtenToSpdif;
             }
         }
         if (written < 0) {
