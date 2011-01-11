@@ -93,7 +93,7 @@ void AudioHardware::readHwGainFile()
         LOGD("Read gain file, format %X version %X", format, version);
         ::close(fd);
     }
-    if (rc != sizeof(mCpcapGain) || format != 0x30303031) {
+    if (rc != sizeof(mCpcapGain) || format != 0x30303032) {
         int gain;
         LOGE("CPCAP gain file not valid. Using defaults.");
         for (int i=0; i<AUDIO_HW_GAIN_NUM_DIRECTIONS; i++) {
@@ -428,10 +428,17 @@ status_t AudioHardware::setMasterVolume(float v)
     LOGV("Set master vol to %f.\n", v);
     mMasterVol = v;
     Mutex::Autolock lock(mLock);
-    if (isInCall())
-        setVolume_l(v, AUDIO_HW_GAIN_USECASE_VOICE);
-    else
-        setVolume_l(v, AUDIO_HW_GAIN_USECASE_MM);
+    int useCase = AUDIO_HW_GAIN_USECASE_MM;
+    AudioStreamInTegra *input = getActiveInput_l();
+    if (input) {
+        if (isInCall() && !mOutput->getStandby() &&
+                input->source() == AUDIO_SOURCE_VOICE_COMMUNICATION) {
+            useCase = AUDIO_HW_GAIN_USECASE_VOICE;
+        } else if (input->source() == AUDIO_SOURCE_VOICE_RECOGNITION) {
+            useCase = AUDIO_HW_GAIN_USECASE_VOICE_REC;
+        }
+    }
+    setVolume_l(v, useCase);
     return NO_ERROR;
 }
 
@@ -673,10 +680,13 @@ status_t AudioHardware::doRouting_l()
     }
 
     // Since HW path may have changed, set the hardware gains.
-    if (ecnsEnabled)
-        setVolume_l(mMasterVol, AUDIO_HW_GAIN_USECASE_VOICE);
-    else
-        setVolume_l(mMasterVol, AUDIO_HW_GAIN_USECASE_MM);
+    int useCase = AUDIO_HW_GAIN_USECASE_MM;
+    if (ecnsEnabled) {
+        useCase = AUDIO_HW_GAIN_USECASE_VOICE;
+    } else if (input && input->source() == AUDIO_SOURCE_VOICE_RECOGNITION) {
+        useCase = AUDIO_HW_GAIN_USECASE_VOICE_REC;
+    }
+    setVolume_l(mMasterVol, useCase);
 
     return NO_ERROR;
 }
@@ -892,6 +902,7 @@ ssize_t AudioHardware::AudioStreamOutTegra::write(const void* buffer, size_t byt
     // Protect output state during the write process.
     mHardware->mLock.lock();
 
+
     { // scope for the lock
         Mutex::Autolock lock(mLock);
 
@@ -936,7 +947,7 @@ ssize_t AudioHardware::AudioStreamOutTegra::write(const void* buffer, size_t byt
             // it also needs the sample rate conversion
             Mutex::Autolock lock2(mFdLock);
             writtenToSpdif = ::write(mSpdifFd, buffer, outsize);
-            LOGV("%s: written %d bytes to SPDIF", __FUNCTION__, writtenToSpdif);
+            LOGV("%s: written %d bytes to SPDIF", __FUNCTION__, (int)writtenToSpdif);
         }
         if (mIsBtEnabled) {
             outFd = mBtFd;
@@ -1368,6 +1379,7 @@ ssize_t AudioHardware::AudioStreamInTegra::read(void* buffer, ssize_t bytes)
     }
     // LOGV("AudioStreamInTegra::read(%p, %ld) TID %d", buffer, bytes, gettid());
 
+
     mHardware->mLock.lock();
 
     {   // scope for mLock
@@ -1460,6 +1472,7 @@ ssize_t AudioHardware::AudioStreamInTegra::read(void* buffer, ssize_t bytes)
             status = ret;
             goto error;
         }
+
         return ret;
     }
 
