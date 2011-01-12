@@ -1283,7 +1283,7 @@ AudioHardware::AudioStreamInTegra::AudioStreamInTegra() :
     mSampleRate(AUDIO_HW_IN_SAMPLERATE), mBufferSize(AUDIO_HW_IN_BUFFERSIZE),
     mAcoustics((AudioSystem::audio_in_acoustics)0), mDevices(0),
     mIsMicEnabled(0), mIsBtEnabled(0),
-    mSource(AUDIO_SOURCE_DEFAULT), mLocked(false)
+    mSource(AUDIO_SOURCE_DEFAULT), mLocked(false), mTotalBuffersRead(0)
 {
 }
 
@@ -1473,6 +1473,7 @@ ssize_t AudioHardware::AudioStreamInTegra::read(void* buffer, ssize_t bytes)
             goto error;
         }
 
+        mTotalBuffersRead++;
         return ret;
     }
 
@@ -1483,7 +1484,7 @@ error:
     return status;
 }
 
-bool AudioHardware::AudioStreamInTegra::getStandby()
+bool AudioHardware::AudioStreamInTegra::getStandby() const
 {
     return mState == AUDIO_STREAM_IDLE;
 }
@@ -1555,6 +1556,8 @@ status_t AudioHardware::AudioStreamInTegra::online_l()
             mLocked = true;
             mHardware->doRouting_l();
             mLocked = false;
+            mTotalBuffersRead = 0;
+            mStartTimeNs = systemTime();
         }
 
         mState = AUDIO_STREAM_CONFIGURED;
@@ -1648,6 +1651,28 @@ String8 AudioHardware::AudioStreamInTegra::getParameters(const String8& keys)
 
     LOGV("AudioStreamInTegra::getParameters() %s", param.toString().string());
     return param.toString();
+}
+
+unsigned int  AudioHardware::AudioStreamInTegra::getInputFramesLost() const
+{
+    Mutex::Autolock _l(mLock);
+    unsigned int lostFrames = 0;
+    if (!getStandby()) {
+        unsigned int framesPerBuffer = bufferSize() / frameSize();
+        uint64_t expectedFrames = ((systemTime() - mStartTimeNs) * mSampleRate) / 1000000000;
+        expectedFrames = (expectedFrames / framesPerBuffer) * framesPerBuffer;
+        uint64_t actualFrames = (uint64_t)mTotalBuffersRead * framesPerBuffer;
+        if (expectedFrames > actualFrames) {
+            lostFrames = (unsigned int)(expectedFrames - actualFrames);
+            LOGW("getInputFramesLost() expected %d actual %d lost %d",
+                 (unsigned int)expectedFrames, (unsigned int)actualFrames, lostFrames);
+        }
+    }
+
+    mTotalBuffersRead = 0;
+    mStartTimeNs = systemTime();
+
+    return lostFrames;
 }
 
 // ----------------------------------------------------------------------------
