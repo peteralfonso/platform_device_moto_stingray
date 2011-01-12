@@ -200,7 +200,8 @@ service whisper /system/bin/whisperd
 # create virtual SD card at /mnt/sdcard, based on the /data/media directory
 # daemon will drop to user/group system/media_rw after initializing
 # underlying files in /data/media will be created with user and group media_rw (1023)
-service sdcard /system/bin/sdcard /data/media 1023 1023
+# STOPSHIP - remove -f option to check for and fix up non-lowercase file names
+service sdcard /system/bin/sdcard -l -f /data/media 1023 1023
     class late_start
 
 service motolocation /system/bin/sh /system/bin/am startservice -n com.motorola.android.locationproxy/com.motorola.android.locationproxy.LocationProxyService
