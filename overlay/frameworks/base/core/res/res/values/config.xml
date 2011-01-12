@@ -95,9 +95,6 @@
     <!-- Set to true for backward compatibility with apps that require external storage. -->
     <bool name="config_emulateExternalStorage">true</bool>
 
-    <!-- Set to true if external storage is case sensitive. -->
-    <bool name="config_caseSensitiveExternalStorage">true</bool>
-
     <!-- Indicate whether the device has USB host support. -->
     <bool name="config_hasUsbHostSupport">true</bool>
 
