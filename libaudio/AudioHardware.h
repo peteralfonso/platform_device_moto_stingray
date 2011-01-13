@@ -236,16 +236,18 @@ private:
         virtual status_t    dump(int fd, const Vector<String16>& args);
         virtual status_t    standby();
         virtual status_t    online_l();
-                bool        getStandby();
+                bool        getStandby() const;
         virtual status_t    setParameters(const String8& keyValuePairs);
         virtual String8     getParameters(const String8& keys);
-        virtual unsigned int  getInputFramesLost() const { return 0; }
+        virtual unsigned int  getInputFramesLost() const;
                 uint32_t    devices() { return mDevices; }
                 void        setDriver(bool mic, bool bluetooth);
                 int         source() const { return mSource; }
     private:
+                void        reopenReconfigDriver();
+
                 AudioHardware* mHardware;
-                Mutex       mLock;
+        mutable Mutex       mLock;
                 int         mFd;
                 int         mFdCtl;
                 int         mState;
@@ -265,7 +267,8 @@ private:
                 AudioStreamSrc mSrc;
 #endif
                 bool        mLocked;        // setDriver() doesn't have to lock if true
-                void        reopenReconfigDriver();
+        mutable uint32_t    mTotalBuffersRead;
+        mutable nsecs_t     mStartTimeNs;
     };
 
             static const uint32_t inputSamplingRates[];
