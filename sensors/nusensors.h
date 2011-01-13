@@ -21,6 +21,7 @@
 #include <errno.h>
 #include <sys/cdefs.h>
 #include <sys/types.h>
+#include <math.h>
 
 #include <linux/input.h>
 
@@ -64,19 +65,18 @@ int init_nusensors(hw_module_t const* module, hw_device_t** device);
 #define BAROMETER_DEVICE_NAME       "/dev/bmp085"
 #define GYROSCOPE_DEVICE_NAME       "/dev/l3g4200d"
 
-#define EVENT_TYPE_ACCEL_X          ABS_X
-#define EVENT_TYPE_ACCEL_Y          ABS_Y
-#define EVENT_TYPE_ACCEL_Z          ABS_Z
-#define EVENT_TYPE_ACCEL_STATUS     ABS_WHEEL
+#define EVENT_TYPE_ACCEL_X          REL_X
+#define EVENT_TYPE_ACCEL_Y          REL_Y
+#define EVENT_TYPE_ACCEL_Z          REL_Z
 
-#define EVENT_TYPE_YAW              ABS_RX
-#define EVENT_TYPE_PITCH            ABS_RY
-#define EVENT_TYPE_ROLL             ABS_RZ
-#define EVENT_TYPE_ORIENT_STATUS    ABS_RUDDER
+#define EVENT_TYPE_YAW              REL_RX
+#define EVENT_TYPE_PITCH            REL_RY
+#define EVENT_TYPE_ROLL             REL_RZ
+#define EVENT_TYPE_ORIENT_STATUS    REL_HWHEEL
 
-#define EVENT_TYPE_MAGV_X           ABS_HAT0X
-#define EVENT_TYPE_MAGV_Y           ABS_HAT0Y
-#define EVENT_TYPE_MAGV_Z           ABS_BRAKE
+#define EVENT_TYPE_MAGV_X           REL_DIAL
+#define EVENT_TYPE_MAGV_Y           REL_WHEEL
+#define EVENT_TYPE_MAGV_Z           REL_MISC
 
 #define EVENT_TYPE_LIGHT            MSC_RAW
 #define EVENT_TYPE_PRESSURE         ABS_PRESSURE
@@ -85,9 +85,9 @@ int init_nusensors(hw_module_t const* module, hw_device_t** device);
 #define EVENT_TYPE_GYRO_R           REL_RY
 #define EVENT_TYPE_GYRO_Y           REL_RZ
 
-// 1000 LSG = 1G
-#define LSG                         (1000.0f)
-
+// 1024 LSG = 1G
+#define LSG                         (1024.0f)
+#define MAX_RANGE_A                 (2*GRAVITY_EARTH)
 // conversion of acceleration data to SI units (m/s^2)
 #define CONVERT_A                   (GRAVITY_EARTH / LSG)
 #define CONVERT_A_X                 (CONVERT_A)
@@ -106,7 +106,8 @@ int init_nusensors(hw_module_t const* module, hw_device_t** device);
 #define CONVERT_O_R                 (-CONVERT_O)
 
 // conversion of angular velocity(millidegrees/second) to rad/s
-#define CONVERT_G                   (((1.0f *8.75f)/1000) * 0.0174f)
+#define MAX_RANGE_G                 (2000.0f * ((float)(M_PI/180.0f)))
+#define CONVERT_G                   ((70.0f/1000.0f) * ((float)(M_PI/180.0f)))
 #define CONVERT_G_P                 (CONVERT_G)
 #define CONVERT_G_R                 (CONVERT_G)
 #define CONVERT_G_Y                 (CONVERT_G)

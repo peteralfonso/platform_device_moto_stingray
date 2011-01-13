@@ -65,46 +65,16 @@ AkmSensor::AkmSensor()
     if (!ioctl(dev_fd, ECS_IOCTL_APP_GET_AFLAG, &flags)) {
         if (flags)  {
             mEnabled |= 1<<Accelerometer;
-            if (!ioctl(data_fd, EVIOCGABS(EVENT_TYPE_ACCEL_X), &absinfo)) {
-                mPendingEvents[Accelerometer].acceleration.x = absinfo.value * CONVERT_A_X;
-            }
-            if (!ioctl(data_fd, EVIOCGABS(EVENT_TYPE_ACCEL_Y), &absinfo)) {
-                mPendingEvents[Accelerometer].acceleration.y = absinfo.value * CONVERT_A_Y;
-            }
-            if (!ioctl(data_fd, EVIOCGABS(EVENT_TYPE_ACCEL_Z), &absinfo)) {
-                mPendingEvents[Accelerometer].acceleration.z = absinfo.value * CONVERT_A_Z;
-            }
         }
     }
     if (!ioctl(dev_fd, ECS_IOCTL_APP_GET_MVFLAG, &flags)) {
         if (flags)  {
             mEnabled |= 1<<MagneticField;
-            if (!ioctl(data_fd, EVIOCGABS(EVENT_TYPE_MAGV_X), &absinfo)) {
-                mPendingEvents[MagneticField].magnetic.x = absinfo.value * CONVERT_M_X;
-            }
-            if (!ioctl(data_fd, EVIOCGABS(EVENT_TYPE_MAGV_Y), &absinfo)) {
-                mPendingEvents[MagneticField].magnetic.y = absinfo.value * CONVERT_M_Y;
-            }
-            if (!ioctl(data_fd, EVIOCGABS(EVENT_TYPE_MAGV_Z), &absinfo)) {
-                mPendingEvents[MagneticField].magnetic.z = absinfo.value * CONVERT_M_Z;
-            }
         }
     }
     if (!ioctl(dev_fd, ECS_IOCTL_APP_GET_MFLAG, &flags)) {
         if (flags)  {
             mEnabled |= 1<<Orientation;
-            if (!ioctl(data_fd, EVIOCGABS(EVENT_TYPE_YAW), &absinfo)) {
-                mPendingEvents[Orientation].orientation.azimuth = absinfo.value;
-            }
-            if (!ioctl(data_fd, EVIOCGABS(EVENT_TYPE_PITCH), &absinfo)) {
-                mPendingEvents[Orientation].orientation.pitch = absinfo.value;
-            }
-            if (!ioctl(data_fd, EVIOCGABS(EVENT_TYPE_ROLL), &absinfo)) {
-                mPendingEvents[Orientation].orientation.roll = -absinfo.value;
-            }
-            if (!ioctl(data_fd, EVIOCGABS(EVENT_TYPE_ORIENT_STATUS), &absinfo)) {
-                mPendingEvents[Orientation].orientation.status = uint8_t(absinfo.value & SENSOR_STATE_MASK);
-            }
         }
     }
     if (!mEnabled) {
@@ -211,7 +181,7 @@ int AkmSensor::readEvents(sensors_event_t* data, int count)
 
     while (count && mInputReader.readEvent(&event)) {
         int type = event->type;
-        if (type == EV_ABS) {
+        if (type == EV_REL) {
             processEvent(event->code, event->value);
             mInputReader.next();
         } else if (type == EV_SYN) {
