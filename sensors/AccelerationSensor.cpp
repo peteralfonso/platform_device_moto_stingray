@@ -44,21 +44,10 @@ AccelerationSensor::AccelerationSensor()
 
     open_device();
 
-    // read the actual value of all sensors if they're enabled already
-    struct input_absinfo absinfo;
     int flags = 0;
     if (!ioctl(dev_fd, KXTF9_IOCTL_GET_ENABLE, &flags)) {
         if (flags)  {
             mEnabled = 1;
-            if (!ioctl(data_fd, EVIOCGABS(EVENT_TYPE_ACCEL_X), &absinfo)) {
-                mPendingEvent.acceleration.x = absinfo.value * CONVERT_A_X;
-            }
-            if (!ioctl(data_fd, EVIOCGABS(EVENT_TYPE_ACCEL_Y), &absinfo)) {
-                mPendingEvent.acceleration.y = absinfo.value * CONVERT_A_Y;
-            }
-            if (!ioctl(data_fd, EVIOCGABS(EVENT_TYPE_ACCEL_Z), &absinfo)) {
-                mPendingEvent.acceleration.z = absinfo.value * CONVERT_A_Z;
-            }
         }
     }
     if (!mEnabled) {
@@ -150,7 +139,7 @@ int AccelerationSensor::readEvents(sensors_event_t* data, int count)
 
     while (count && mInputReader.readEvent(&event)) {
         int type = event->type;
-        if (type == EV_ABS) {
+        if (type == EV_REL) {
             processEvent(event->code, event->value);
         } else if (type == EV_SYN) {
             int64_t time = timevalToNano(event->time);
@@ -160,7 +149,9 @@ int AccelerationSensor::readEvents(sensors_event_t* data, int count)
                 count--;
                 numEventReceived++;
             }
-        } else {
+        // accelerometer sends valid ABS events for
+        // userspace using EVIOCGABS
+        } else if (type != EV_ABS) { 
             LOGE("AccelerationSensor: unknown event (type=%d, code=%d)",
                     type, event->code);
         }
