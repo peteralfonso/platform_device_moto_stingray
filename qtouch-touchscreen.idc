@@ -52,4 +52,4 @@ touch.pressure.scale = 0.0125
 touch.size.calibration = normalized
 
 # Orientation
-touch.orientation.calibration = none
+touch.orientation.calibration = vector
