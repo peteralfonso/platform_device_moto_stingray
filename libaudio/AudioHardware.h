@@ -37,6 +37,7 @@ namespace android {
 #include <linux/cpcap_audio.h>
 #include <linux/tegra_audio.h>
 
+#define AUDIO_HW_OUT_SAMPLERATE 44100
 #define AUDIO_HW_NUM_OUT_BUF 2
 #define AUDIO_HW_OUT_LATENCY_MS 0
 
@@ -74,6 +75,7 @@ enum {
 enum input_state {
     AUDIO_STREAM_IDLE,
     AUDIO_STREAM_CONFIG_REQ,
+    AUDIO_STREAM_NEW_RATE_REQ,
     AUDIO_STREAM_CONFIGURED
 };
 
@@ -164,13 +166,13 @@ private:
     public:
                             AudioStreamOutTegra();
         virtual             ~AudioStreamOutTegra();
-        virtual void        setDriver(bool speaker, bool bluetooth, bool spdif);
+        virtual void        setDriver_l(bool speaker, bool bluetooth, bool spdif, int sampleRate);
                 status_t    set(AudioHardware* mHardware,
                                 uint32_t devices,
                                 int *pFormat,
                                 uint32_t *pChannels,
                                 uint32_t *pRate);
-        virtual uint32_t    sampleRate() const { return 44100; }
+        virtual uint32_t    sampleRate() const { return AUDIO_HW_OUT_SAMPLERATE; }
         // must be 32-bit aligned - driver only seems to like 4800
         virtual size_t      bufferSize() const { return 4096; }
         virtual uint32_t    channels() const { return AudioSystem::CHANNEL_OUT_STEREO; }
@@ -187,6 +189,9 @@ private:
         virtual String8     getParameters(const String8& keys);
                 uint32_t    devices() { return mDevices; }
         virtual status_t    getRenderPosition(uint32_t *dspFrames);
+                void        lock() { mLock.lock(); }
+                void        unlock() { mLock.unlock(); }
+                bool        isLocked() { return mLocked; }
 
     private:
                 AudioHardware* mHardware;
@@ -215,6 +220,7 @@ private:
                 AudioStreamSrc mSrc;
 #endif
                 bool        mLocked;        // setDriver() doesn't have to lock if true
+                int         mDriverRate;
     };
 
     class AudioStreamInTegra : public AudioStreamIn {
@@ -241,8 +247,12 @@ private:
         virtual String8     getParameters(const String8& keys);
         virtual unsigned int  getInputFramesLost() const;
                 uint32_t    devices() { return mDevices; }
-                void        setDriver(bool mic, bool bluetooth);
+                void        setDriver_l(bool mic, bool bluetooth, int sampleRate);
                 int         source() const { return mSource; }
+                void        lock() { mLock.lock(); }
+                void        unlock() { mLock.unlock(); }
+                bool        isLocked() { return mLocked; }
+
     private:
                 void        reopenReconfigDriver();
 
@@ -269,6 +279,7 @@ private:
                 bool        mLocked;        // setDriver() doesn't have to lock if true
         mutable uint32_t    mTotalBuffersRead;
         mutable nsecs_t     mStartTimeNs;
+                int         mDriverRate;
     };
 
             static const uint32_t inputSamplingRates[];
@@ -296,6 +307,8 @@ private:
 #ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
             AudioPostProcessor mAudioPP;
 #endif
+            int mSpkrVolume;
+            int mMicVolume;
 };
 
 // ----------------------------------------------------------------------------
