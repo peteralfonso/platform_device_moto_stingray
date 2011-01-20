@@ -20,16 +20,8 @@ on post-fs-data
     mkdir /data/misc/dhcp 0770 dhcp dhcp
     chown dhcp dhcp /data/misc/dhcp
 
-    # make symlinks to keep rild from making files on /data
-    mkdir /dev/ril
-    chown radio radio /dev/ril
-    chmod 0700 /dev/ril
-    symlink /dev/null /dev/ril/ril_apr.log
-    rm /data/misc/ril/RIL_RDS_SOCKET
-    rm /data/misc/ril/modempanic.fifo
-    rm /data/misc/ril/ril_apr.log
-    rmdir /data/misc/ril
-    symlink /dev/ril /data/misc/ril
+    # cleanup obsolete symlink hack that may be lying around
+    rm /data/misc/ril
 
     # we will remap this as /mnt/sdcard with the sdcard fuse tool
     mkdir /data/media 0775 media_rw media_rw
