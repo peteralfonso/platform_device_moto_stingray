@@ -57,7 +57,10 @@ PRODUCT_PACKAGES := \
     sensors.stingray \
     lights.stingray \
     librs_jni \
-    make_ext4fs
+    make_ext4fs \
+    l2ping \
+    hcitool \
+    bttest
 
 PRODUCT_CHARACTERISTICS := tablet,nosdcard
 
