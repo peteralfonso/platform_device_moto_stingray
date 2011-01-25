@@ -37,26 +37,52 @@ const uint32_t AudioHardware::inputSamplingRates[] = {
     8000, 11025, 12000, 16000, 22050, 32000, 44100, 48000
 };
 
+// number of times to attempt init() before giving up
+const uint32_t MAX_INIT_TRIES = 10;
+
 // ----------------------------------------------------------------------------
 
+// always succeeds, must call init() immediately after
 AudioHardware::AudioHardware() :
     mInit(false), mMicMute(false), mBluetoothNrec(true), mBluetoothId(0),
-    mOutput(0), mCpcapCtlFd(-1), mMasterVol(1.0), mVoiceVol(1.0),
+    mOutput(0), /*mCurOut/InDevice*/ mCpcapCtlFd(-1), mHwOutRate(0), mHwInRate(0),
+    mMasterVol(1.0), mVoiceVol(1.0),
+    /*mCpcapGain*/
     mSpkrVolume(-1), mMicVolume(-1)
 {
     LOGV("AudioHardware constructor");
+}
+
+// designed to be called multiple times for retries
+status_t AudioHardware::init() {
+
+    if (mInit) {
+        return NO_ERROR;
+    }
 
     mCpcapCtlFd = ::open("/dev/audio_ctl", O_RDWR);
     if (mCpcapCtlFd < 0) {
-        LOGE("Failed to initialized: %s\n", strerror(errno));
-        return;
+        LOGE("open /dev/audio_ctl failed: %s", strerror(errno));
+        goto error;
     }
 
-    ::ioctl(mCpcapCtlFd, CPCAP_AUDIO_OUT_GET_OUTPUT, &mCurOutDevice);
-    ::ioctl(mCpcapCtlFd, CPCAP_AUDIO_IN_GET_INPUT, &mCurInDevice);
+    if (::ioctl(mCpcapCtlFd, CPCAP_AUDIO_OUT_GET_OUTPUT, &mCurOutDevice) < 0) {
+        LOGE("could not get output device: %s", strerror(errno));
+        goto error;
+    }
+    if (::ioctl(mCpcapCtlFd, CPCAP_AUDIO_IN_GET_INPUT, &mCurInDevice) < 0) {
+        LOGE("could not get input device: %s", strerror(errno));
+        goto error;
+    }
     // For bookkeeping only
-    ::ioctl(mCpcapCtlFd, CPCAP_AUDIO_OUT_GET_RATE, &mHwOutRate);
-    ::ioctl(mCpcapCtlFd, CPCAP_AUDIO_IN_GET_RATE, &mHwInRate);
+    if (::ioctl(mCpcapCtlFd, CPCAP_AUDIO_OUT_GET_RATE, &mHwOutRate) < 0) {
+        LOGE("could not get output rate: %s", strerror(errno));
+        goto error;
+    }
+    if (::ioctl(mCpcapCtlFd, CPCAP_AUDIO_IN_GET_RATE, &mHwInRate) < 0) {
+        LOGE("could not get input rate: %s", strerror(errno));
+        goto error;
+    }
 
 #ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
     // Init the MM Audio Post Processing
@@ -66,6 +92,14 @@ AudioHardware::AudioHardware() :
     readHwGainFile();
 
     mInit = true;
+    return NO_ERROR;
+
+error:
+    if (mCpcapCtlFd >= 0) {
+        (void) ::close(mCpcapCtlFd);
+        mCpcapCtlFd = -1;
+    }
+    return NO_INIT;
 }
 
 AudioHardware::~AudioHardware()
@@ -76,7 +110,10 @@ AudioHardware::~AudioHardware()
     }
     mInputs.clear();
     closeOutputStream((AudioStreamOut*)mOutput);
-    ::close(mCpcapCtlFd);
+    if (mCpcapCtlFd >= 0) {
+        (void) ::close(mCpcapCtlFd);
+        mCpcapCtlFd = -1;
+    }
 }
 
 void AudioHardware::readHwGainFile()
@@ -131,7 +168,19 @@ AudioStreamOut* AudioHardware::openOutputStream(
 
         // create new output stream
         AudioStreamOutTegra* out = new AudioStreamOutTegra();
-        status_t lStatus = out->set(this, devices, format, channels, sampleRate);
+        for (unsigned tries = 0; tries < MAX_INIT_TRIES; ++tries) {
+            if (NO_ERROR == out->init())
+                break;
+            LOGW("AudioStreamOutTegra::init failed soft, retrying");
+            sleep(1);
+        }
+        status_t lStatus;
+        lStatus = out->initCheck();
+        if (NO_ERROR != lStatus) {
+            LOGE("AudioStreamOutTegra::init failed hard");
+        } else {
+            lStatus = out->set(this, devices, format, channels, sampleRate);
+        }
         if (status) {
             *status = lStatus;
         }
@@ -140,6 +189,7 @@ AudioStreamOut* AudioHardware::openOutputStream(
         } else {
             mLock.unlock();
             delete out;
+            out = NULL;
             mLock.lock();
         }
     }
@@ -152,10 +202,11 @@ void AudioHardware::closeOutputStream(AudioStreamOut* out) {
         LOGW("Attempt to close invalid output stream");
     }
     else {
-        mLock.unlock();
-        delete mOutput;
-        mLock.lock();
+        // AudioStreamOutTegra destructor calls standby which locks
         mOutput = 0;
+        mLock.unlock();
+        delete out;
+        mLock.lock();
     }
 }
 
@@ -171,6 +222,7 @@ AudioStreamIn* AudioHardware::openInputStream(
     Mutex::Autolock lock(mLock);
 
     AudioStreamInTegra* in = new AudioStreamInTegra();
+    // this serves a similar purpose as init()
     status_t lStatus = in->set(this, devices, format, channels, sampleRate, acoustic_flags);
     if (status) {
         *status = lStatus;
@@ -195,10 +247,10 @@ void AudioHardware::closeInputStream(AudioStreamIn* in)
     if (index < 0) {
         LOGW("Attempt to close invalid input stream");
     } else {
-        mLock.unlock();
-        delete mInputs[index];
-        mLock.lock();
         mInputs.removeAt(index);
+        mLock.unlock();
+        delete in;
+        mLock.lock();
     }
 }
 
@@ -251,12 +303,15 @@ status_t AudioHardware::doStandby(int stop_fd, bool output, bool enable)
         }
 
         if (::ioctl(mCpcapCtlFd, CPCAP_AUDIO_OUT_SET_OUTPUT, &standby) < 0) {
-            LOGE("could not turn off current output device: %s\n",
+            LOGE("could not turn off current output device: %s",
                  strerror(errno));
             status = errno;
         }
 
-        ::ioctl(mCpcapCtlFd, CPCAP_AUDIO_OUT_GET_OUTPUT, &mCurOutDevice);
+        if (::ioctl(mCpcapCtlFd, CPCAP_AUDIO_OUT_GET_OUTPUT, &mCurOutDevice) < 0) {
+            LOGE("could not get current output device after standby: %s",
+                 strerror(errno));
+        }
         LOGV("%s: after standby %s, output device %d is %s", __FUNCTION__,
              enable ? "enable" : "disable", mCurOutDevice.id,
              mCurOutDevice.on ? "on" : "off");
@@ -271,13 +326,13 @@ status_t AudioHardware::doStandby(int stop_fd, bool output, bool enable)
              */
             LOGV("%s: stop recording", __FUNCTION__);
             if (::ioctl(stop_fd, TEGRA_AUDIO_IN_STOP) < 0) {
-                LOGE("could not stop recording: %s\n",
+                LOGE("could not stop recording: %s",
                      strerror(errno));
             }
         }
 
         if (::ioctl(mCpcapCtlFd, CPCAP_AUDIO_IN_SET_INPUT, &standby) < 0) {
-            LOGE("could not turn off current input device: %s\n",
+            LOGE("could not turn off current input device: %s",
                  strerror(errno));
             status = errno;
         }
@@ -426,13 +481,13 @@ status_t AudioHardware::setMasterVolume(float v)
     else if (v > 1.0)
         v = 1.0;
 
-    LOGV("Set master vol to %f.\n", v);
+    LOGV("Set master vol to %f.", v);
     mMasterVol = v;
     Mutex::Autolock lock(mLock);
     int useCase = AUDIO_HW_GAIN_USECASE_MM;
     AudioStreamInTegra *input = getActiveInput_l();
     if (input) {
-        if (isInCall() && !mOutput->getStandby() &&
+        if (isInCall() && mOutput && !mOutput->getStandby() &&
                 input->source() == AUDIO_SOURCE_VOICE_COMMUNICATION) {
             useCase = AUDIO_HW_GAIN_USECASE_VOICE;
         } else if (input->source() == AUDIO_SOURCE_VOICE_RECOGNITION) {
@@ -456,19 +511,19 @@ status_t AudioHardware::setVolume_l(float v, int usecase)
 
     spkr = ceil(v * spkr);
     if (mSpkrVolume != spkr) {
-        LOGD("Set tx volume to %d\n", spkr);
+        LOGD("Set tx volume to %d", spkr);
         int ret = ::ioctl(mCpcapCtlFd, CPCAP_AUDIO_OUT_SET_VOLUME, spkr);
         if (ret < 0) {
-            LOGE("could not set spkr volume: %s\n", strerror(errno));
+            LOGE("could not set spkr volume: %s", strerror(errno));
             return ret;
         }
         mSpkrVolume = spkr;
     }
     if (mMicVolume != mic) {
-        LOGD("Set rx volume to %d\n", mic);
+        LOGD("Set rx volume to %d", mic);
         int ret = ::ioctl(mCpcapCtlFd, CPCAP_AUDIO_IN_SET_VOLUME, mic);
         if (ret < 0) {
-            LOGE("could not set mic volume: %s\n", strerror(errno));
+            LOGE("could not set mic volume: %s", strerror(errno));
             return ret;
         }
         mMicVolume = mic;
@@ -522,6 +577,9 @@ status_t AudioHardware::doRouting()
 // Call this with mLock held.
 status_t AudioHardware::doRouting_l()
 {
+    if (!mOutput) {
+        return NO_ERROR;
+    }
     uint32_t outputDevices = mOutput->devices();
     AudioStreamInTegra *input = getActiveInput_l();
     uint32_t inputDevice = (input == NULL) ? 0 : input->devices();
@@ -589,7 +647,7 @@ status_t AudioHardware::doRouting_l()
 
         if (::ioctl(mCpcapCtlFd, CPCAP_AUDIO_IN_SET_INPUT,
                   &mCurInDevice) < 0)
-            LOGE("could not set input (%d, on %d): %s\n",
+            LOGE("could not set input (%d, on %d): %s",
                  mCurInDevice.id, mCurInDevice.on, strerror(errno));
 
         LOGV("current input %d, %s",
@@ -608,7 +666,7 @@ status_t AudioHardware::doRouting_l()
 
         if (::ioctl(mCpcapCtlFd, CPCAP_AUDIO_OUT_SET_OUTPUT,
                   &mCurOutDevice) < 0)
-            LOGE("could not set output (%d, on %d): %s\n",
+            LOGE("could not set output (%d, on %d): %s",
                  mCurOutDevice.id, mCurOutDevice.on,
                  strerror(errno));
 
@@ -658,10 +716,10 @@ status_t AudioHardware::doRouting_l()
             LOGV("Minor TODO: Flush input if active.");
             if (::ioctl(mCpcapCtlFd, CPCAP_AUDIO_IN_SET_RATE,
                       mHwInRate) < 0)
-                LOGE("could not set input rate(%d): %s\n",
+                LOGE("could not set input rate(%d): %s",
                       mHwInRate, strerror(errno));
             if (::ioctl(mCpcapCtlFd, CPCAP_AUDIO_IN_GET_RATE, &mHwInRate))
-                LOGE("CPCAP driver error reading rates.");
+                LOGE("CPCAP driver error reading rates: %s", strerror(errno));
         }
     }
 
@@ -671,7 +729,7 @@ status_t AudioHardware::doRouting_l()
     }
     int speakerOutRate = 0;
     if (::ioctl(mCpcapCtlFd, CPCAP_AUDIO_OUT_GET_RATE, &speakerOutRate))
-        LOGE("could not read output rate: %s\n",
+        LOGE("could not read output rate: %s",
                    strerror(errno));
     if (mHwOutRate != oldOutRate ||
         (speakerOutRate!=AUDIO_HW_OUT_SAMPLERATE && btScoOn)) {
@@ -685,7 +743,7 @@ status_t AudioHardware::doRouting_l()
         // Now the DMA is empty, change the rate.
         if (::ioctl(mCpcapCtlFd, CPCAP_AUDIO_OUT_SET_RATE,
                   speaker_rate) < 0)
-            LOGE("could not set output rate(%d): %s\n",
+            LOGE("could not set output rate(%d): %s",
                   speaker_rate, strerror(errno));
     }
 #ifdef USE_PROPRIETARY_AUDIO_EXTENSIONS
@@ -817,19 +875,65 @@ void AudioHardware::AudioStreamSrc::init(int inRate, int outRate)
 
 // ----------------------------------------------------------------------------
 
+// always succeeds, must call init() immediately after
 AudioHardware::AudioStreamOutTegra::AudioStreamOutTegra() :
-    mHardware(0), mFd(-1), mFdCtl(-1), mStartCount(0), mRetryCount(0), mDevices(0),
-    mIsSpkrEnabled(0), mIsBtEnabled(0), mIsSpdifEnabled(0),
-    mIsSpkrEnabledReq(0), mIsBtEnabledReq(0), mIsSpdifEnabledReq(0),
-    mState(AUDIO_STREAM_IDLE), mLocked(false), mDriverRate(AUDIO_HW_OUT_SAMPLERATE)
+    mHardware(0), mFd(-1), mFdCtl(-1),
+    mBtFd(-1), mBtFdCtl(-1), mBtFdIoCtl(-1),
+    mSpdifFd(-1), mSpdifFdCtl(-1),
+    mStartCount(0), mRetryCount(0), mDevices(0),
+    mIsSpkrEnabled(false), mIsBtEnabled(false), mIsSpdifEnabled(false),
+    mIsSpkrEnabledReq(false), mIsBtEnabledReq(false), mIsSpdifEnabledReq(false),
+    mSpareSample(0), mHaveSpareSample(false),
+    mState(AUDIO_STREAM_IDLE), /*mSrc*/ mLocked(false), mDriverRate(AUDIO_HW_OUT_SAMPLERATE),
+    mInit(false)
 {
-    mFd = ::open("/dev/audio0_out", O_RDWR);
-    mFdCtl = ::open("/dev/audio0_out_ctl", O_RDWR);
-    mBtFd = ::open("/dev/audio1_out", O_RDWR);
-    mBtFdCtl = ::open("/dev/audio1_out_ctl", O_RDWR);
-    mBtFdIoCtl = ::open("/dev/audio1_ctl", O_RDWR);
-    mSpdifFd = ::open("/dev/spdif_out", O_RDWR);
-    mSpdifFdCtl = ::open("/dev/spdif_out_ctl", O_RDWR);
+    LOGV("AudioStreamOutTegra constructor");
+}
+
+// designed to be called multiple times for retries
+status_t AudioHardware::AudioStreamOutTegra::init()
+{
+    if (mInit) {
+        return NO_ERROR;
+    }
+
+#define OPEN_FD(fd, dev)    fd = ::open(dev, O_RDWR);                              \
+                            if (fd < 0) {                                          \
+                                LOGE("open " dev " failed: %s", strerror(errno));   \
+                                goto error;                                         \
+                            }
+    OPEN_FD(mFd, "/dev/audio0_out")
+    OPEN_FD(mFdCtl, "/dev/audio0_out_ctl")
+    OPEN_FD(mBtFd, "/dev/audio1_out")
+    OPEN_FD(mBtFdCtl, "/dev/audio1_out_ctl")
+    OPEN_FD(mBtFdIoCtl, "/dev/audio1_ctl")
+    // may need to be changed to warnings
+    OPEN_FD(mSpdifFd, "/dev/spdif_out")
+    OPEN_FD(mSpdifFdCtl, "/dev/spdif_out_ctl")
+#undef OPEN_FD
+
+    mInit = true;
+    return NO_ERROR;
+
+error:
+#define CLOSE_FD(fd)    if (fd >= 0) {          \
+                            (void) ::close(fd); \
+                            fd = -1;            \
+                        }
+    CLOSE_FD(mFd)
+    CLOSE_FD(mFdCtl)
+    CLOSE_FD(mBtFd)
+    CLOSE_FD(mBtFdCtl)
+    CLOSE_FD(mBtFdIoCtl)
+    CLOSE_FD(mSpdifFd)
+    CLOSE_FD(mSpdifFdCtl)
+#undef CLOSE_FD
+    return NO_INIT;
+}
+
+status_t AudioHardware::AudioStreamOutTegra::initCheck()
+{
+    return mInit ? NO_ERROR : NO_INIT;
 }
 
 // Called with mHardware->mLock and mLock held.
@@ -908,13 +1012,13 @@ AudioHardware::AudioStreamOutTegra::~AudioStreamOutTegra()
     standby();
     // Prevent someone from flushing the fd during a close.
     Mutex::Autolock lock(mFdLock);
-    if (mFd >= 0) ::close(mFd);
-    if (mFdCtl >= 0) ::close(mFdCtl);
-    if (mBtFd >= 0) ::close(mBtFd);
-    if (mBtFdCtl >= 0) ::close(mBtFdCtl);
-    if (mBtFdIoCtl >= 0) ::close(mBtFdIoCtl);
-    if (mSpdifFd >= 0) ::close(mSpdifFd);
-    if (mSpdifFdCtl >= 0) ::close(mSpdifFdCtl);
+    if (mFd >= 0)         { ::close(mFd);         mFd = -1;         }
+    if (mFdCtl >= 0)      { ::close(mFdCtl);      mFdCtl = -1;      }
+    if (mBtFd >= 0)       { ::close(mBtFd);       mBtFd = -1;       }
+    if (mBtFdCtl >= 0)    { ::close(mBtFdCtl);    mBtFdCtl = -1;    }
+    if (mBtFdIoCtl >= 0)  { ::close(mBtFdIoCtl);  mBtFdIoCtl = -1;  }
+    if (mSpdifFd >= 0)    { ::close(mSpdifFd);    mSpdifFd = -1;    }
+    if (mSpdifFdCtl >= 0) { ::close(mSpdifFdCtl); mSpdifFdCtl = -1; }
 }
 
 ssize_t AudioHardware::AudioStreamOutTegra::write(const void* buffer, size_t bytes)
@@ -977,8 +1081,12 @@ ssize_t AudioHardware::AudioStreamOutTegra::write(const void* buffer, size_t byt
             // tuning will be done on Bluetooth, since it has the exclusive mic amd
             // it also needs the sample rate conversion
             Mutex::Autolock lock2(mFdLock);
-            writtenToSpdif = ::write(mSpdifFd, buffer, outsize);
-            LOGV("%s: written %d bytes to SPDIF", __FUNCTION__, (int)writtenToSpdif);
+            if (mSpdifFd >= 0) {
+                writtenToSpdif = ::write(mSpdifFd, buffer, outsize);
+                LOGV("%s: written %d bytes to SPDIF", __FUNCTION__, (int)writtenToSpdif);
+            } else {
+                LOGW("s/pdif enabled but unavailable");
+            }
         }
         if (mIsBtEnabled) {
             outFd = mBtFd;
@@ -1088,7 +1196,7 @@ ssize_t AudioHardware::AudioStreamOutTegra::write(const void* buffer, size_t byt
                 mSpareSample = bufp[outsize/2 - 1];
             }
 
-            if (outFd != -1) {
+            if (outFd >= 0) {
                 Mutex::Autolock lock2(mFdLock);
                 written = ::write(outFd, buffer, outsize&(~0x3));
                 if (written != ((ssize_t)outsize&(~0x3))) {
@@ -1125,11 +1233,11 @@ void AudioHardware::AudioStreamOutTegra::flush()
     Mutex::Autolock lock(mFdLock);
     LOGD("AudioStreamOutTegra::flush()");
     if (::ioctl(mFdCtl, TEGRA_AUDIO_OUT_FLUSH) < 0)
-       LOGE("could not flush playback: %s\n", strerror(errno));
+       LOGE("could not flush playback: %s", strerror(errno));
     if (::ioctl(mBtFdCtl, TEGRA_AUDIO_OUT_FLUSH) < 0)
-       LOGE("could not flush bluetooth: %s\n", strerror(errno));
-    if (::ioctl(mSpdifFdCtl, TEGRA_AUDIO_OUT_FLUSH) < 0)
-       LOGE("could not flush spdif: %s\n", strerror(errno));
+       LOGE("could not flush bluetooth: %s", strerror(errno));
+    if (mSpdifFdCtl >= 0 && ::ioctl(mSpdifFdCtl, TEGRA_AUDIO_OUT_FLUSH) < 0)
+       LOGE("could not flush spdif: %s", strerror(errno));
     LOGD("AudioStreamOutTegra::flush() returns");
 }
 
@@ -1175,8 +1283,12 @@ status_t AudioHardware::AudioStreamOutTegra::online_l()
             is_bt_bypass = true;
         }
         // Setup the I2S2-> DAP2/4 capture/playback path.
-        ::ioctl(mBtFdIoCtl, TEGRA_AUDIO_SET_BIT_FORMAT, &bit_format);
-        ::ioctl(mHardware->mCpcapCtlFd, CPCAP_AUDIO_SET_BLUETOOTH_BYPASS, is_bt_bypass);
+        if (::ioctl(mBtFdIoCtl, TEGRA_AUDIO_SET_BIT_FORMAT, &bit_format) < 0) {
+            LOGE("could not set bit format %s", strerror(errno));
+        }
+        if (::ioctl(mHardware->mCpcapCtlFd, CPCAP_AUDIO_SET_BLUETOOTH_BYPASS, is_bt_bypass) < 0) {
+            LOGE("could not set bluetooth bypass %s", strerror(errno));
+        }
 
     }
 
@@ -1311,6 +1423,7 @@ status_t AudioHardware::AudioStreamOutTegra::getRenderPosition(uint32_t *dspFram
 
 // ----------------------------------------------------------------------------
 
+// always succeeds, must call set() immediately after
 AudioHardware::AudioStreamInTegra::AudioStreamInTegra() :
     mHardware(0), mFd(-1), mFdCtl(-1), mState(AUDIO_STREAM_IDLE), mRetryCount(0),
     mFormat(AUDIO_HW_IN_FORMAT), mChannels(AUDIO_HW_IN_CHANNELS),
@@ -1320,8 +1433,10 @@ AudioHardware::AudioStreamInTegra::AudioStreamInTegra() :
     mSource(AUDIO_SOURCE_DEFAULT), mLocked(false), mTotalBuffersRead(0),
     mDriverRate(AUDIO_HW_IN_SAMPLERATE)
 {
+    LOGV("AudioStreamInTegra constructor");
 }
 
+// serves a similar purpose as init()
 status_t AudioHardware::AudioStreamInTegra::set(
         AudioHardware* hw, uint32_t devices, int *pFormat, uint32_t *pChannels, uint32_t *pRate,
         AudioSystem::audio_in_acoustics acoustic_flags)
@@ -1374,11 +1489,15 @@ AudioHardware::AudioStreamInTegra::~AudioStreamInTegra()
 
     standby();
 
-    if (mFd >= 0)
+    if (mFd >= 0) {
         ::close(mFd);
+        mFd = -1;
+    }
 
-    if (mFdCtl >= 0)
+    if (mFdCtl >= 0) {
         ::close(mFdCtl);
+        mFdCtl = -1;
+    }
 }
 
 // Called with mHardware->mLock and mLock held.
@@ -1541,11 +1660,11 @@ status_t AudioHardware::AudioStreamInTegra::standby()
         mHardware->doRouting_l();
         mLocked = false;
         status = mHardware->doStandby(mFdCtl, false, true); // input, standby
-        if (mFd != -1) {
+        if (mFd >= 0) {
             ::close(mFd);
             mFd = -1;
         }
-        if (mFdCtl != -1) {
+        if (mFdCtl >= 0) {
             ::close(mFdCtl);
             mFdCtl = -1;
         }
@@ -1611,18 +1730,37 @@ status_t AudioHardware::AudioStreamInTegra::online_l()
     return status;
 }
 
+// serves a similar purpose as the init() method of other classes
 void AudioHardware::AudioStreamInTegra::reopenReconfigDriver()
 {
     // Need to "restart" the driver when changing the buffer configuration.
-    if (mFdCtl != -1 && ::ioctl(mFdCtl, TEGRA_AUDIO_IN_STOP) < 0)
-        LOGE("%s: could not stop recording: %s\n", __FUNCTION__, strerror(errno));
-    if (mFd != -1)
+    if (mFdCtl >= 0 && ::ioctl(mFdCtl, TEGRA_AUDIO_IN_STOP) < 0) {
+        LOGE("%s: could not stop recording: %s", __FUNCTION__, strerror(errno));
+    }
+    if (mFd >= 0) {
         ::close(mFd);
-    if (mFdCtl != -1)
+        mFd = -1;
+    }
+    if (mFdCtl >= 0) {
         ::close(mFdCtl);
+        mFdCtl = -1;
+    }
 
+    // This does not have a retry loop to avoid blocking if another record session already in progress
     mFd = ::open("/dev/audio1_in", O_RDWR);
+    if (mFd < 0) {
+        LOGE("open /dev/audio1_in failed: %s", strerror(errno));
+    }
     mFdCtl = ::open("/dev/audio1_in_ctl", O_RDWR);
+    if (mFdCtl < 0) {
+        LOGE("open /dev/audio1_in_ctl failed: %s", strerror(errno));
+        if (mFd >= 0) {
+            ::close(mFd);
+            mFd = -1;
+        }
+    } else {
+        // here we would set mInit = true;
+    }
 }
 
 status_t AudioHardware::AudioStreamInTegra::dump(int fd, const Vector<String16>& args)
@@ -1725,7 +1863,19 @@ unsigned int  AudioHardware::AudioStreamInTegra::getInputFramesLost() const
 // ----------------------------------------------------------------------------
 
 extern "C" AudioHardwareInterface* createAudioHardware(void) {
-    return new AudioHardware();
+    AudioHardware *hw = new AudioHardware();
+    for (unsigned tries = 0; tries < MAX_INIT_TRIES; ++tries) {
+        if (NO_ERROR == hw->init())
+            break;
+        LOGW("AudioHardware::init failed soft, retrying");
+        sleep(1);
+    }
+    if (NO_ERROR != hw->initCheck()) {
+        LOGE("AudioHardware::init failed hard");
+        delete hw;
+        hw = NULL;
+    }
+    return hw;
 }
 
 }; // namespace android
