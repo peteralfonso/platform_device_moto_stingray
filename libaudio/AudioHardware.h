@@ -86,6 +86,7 @@ class AudioHardware : public  AudioHardwareBase
     class AudioStreamSrc;
 
 public:
+    // AudioHardwareInterface
                         AudioHardware();
     virtual             ~AudioHardware();
     virtual status_t    initCheck();
@@ -123,9 +124,23 @@ public:
     virtual    void        closeInputStream(AudioStreamIn* in);
 
     virtual    size_t      getInputBufferSize(uint32_t sampleRate, int format, int channelCount);
+    // AudioHardwareBase provides default implementation
+    //virtual  status_t    dumpState(int fd, const Vector<String16>& args);
+
+    // added by AudioHardware
+               status_t    init();
+
 protected:
-    virtual status_t    dump(int fd, const Vector<String16>& args);
-    virtual     int     getActiveInputRate();
+    // AudioHardwareBase provides default implementation
+    //virtual  bool        isModeInCall(int mode);
+    //virtual  bool        isInCall();
+
+    // AudioHardwareInterface
+    virtual    status_t    dump(int fd, const Vector<String16>& args);
+
+    // added by AudioHardware
+                int        getActiveInputRate();
+
 private:
 
     status_t    dumpInternals(int fd, const Vector<String16>& args);
@@ -166,7 +181,9 @@ private:
     public:
                             AudioStreamOutTegra();
         virtual             ~AudioStreamOutTegra();
-        virtual void        setDriver_l(bool speaker, bool bluetooth, bool spdif, int sampleRate);
+                status_t    init();
+                status_t    initCheck();
+                void        setDriver_l(bool speaker, bool bluetooth, bool spdif, int sampleRate);
                 status_t    set(AudioHardware* mHardware,
                                 uint32_t devices,
                                 int *pFormat,
@@ -180,9 +197,9 @@ private:
         virtual uint32_t    latency() const { return (1000*AUDIO_HW_NUM_OUT_BUF*(bufferSize()/frameSize()))/sampleRate()+AUDIO_HW_OUT_LATENCY_MS; }
         virtual status_t    setVolume(float left, float right) { return INVALID_OPERATION; }
         virtual ssize_t     write(const void* buffer, size_t bytes);
-        virtual void        flush();
+                void        flush();
         virtual status_t    standby();
-        virtual status_t    online_l();
+                status_t    online_l();
         virtual status_t    dump(int fd, const Vector<String16>& args);
                 bool        getStandby();
         virtual status_t    setParameters(const String8& keyValuePairs);
@@ -221,6 +238,7 @@ private:
 #endif
                 bool        mLocked;        // setDriver() doesn't have to lock if true
                 int         mDriverRate;
+                bool        mInit;
     };
 
     class AudioStreamInTegra : public AudioStreamIn {
