@@ -8,5 +8,5 @@ $(call inherit-product-if-exists, vendor/moto/stingray/stingray-vendor.mk)
 # Overrides
 PRODUCT_DEVICE := stingray
 PRODUCT_LOCALES += en_US
-PRODUCT_MODEL := Flatfish # STOPSHIP should be: Motorola Stingray
+PRODUCT_MODEL := Xoom
 PRODUCT_NAME := stingray
