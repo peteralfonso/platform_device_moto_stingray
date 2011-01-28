@@ -1,4 +1,3 @@
-# STOPSHIP: restrict the permission on these nodes to just the needed ones.
 /dev/knvmap	0660	system	system
 /dev/nvmap	0666	system	system
 /dev/ov5650	0660	media	camera
