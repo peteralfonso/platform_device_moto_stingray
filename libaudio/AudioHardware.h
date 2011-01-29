@@ -41,10 +41,6 @@ namespace android {
 #define AUDIO_HW_NUM_OUT_BUF 2
 #define AUDIO_HW_OUT_LATENCY_MS 0
 
-// FIXME: this is a workaround for issue 3387419 with impact on latency
-// to be removed when root cause is fixed
-#define AUDIO_HW_NUM_OUT_BUF_LONG 4
-
 #define AUDIO_HW_IN_SAMPLERATE 11025                  // Default audio input sample rate
 #define AUDIO_HW_IN_CHANNELS (AudioSystem::CHANNEL_IN_MONO) // Default audio input channel mask
 #define AUDIO_HW_IN_BUFFERSIZE (4096)               // Default audio input buffer size
@@ -213,7 +209,6 @@ private:
                 void        lock() { mLock.lock(); }
                 void        unlock() { mLock.unlock(); }
                 bool        isLocked() { return mLocked; }
-                void        setNumBufs(int numBufs);
 
     private:
                 AudioHardware* mHardware;

@@ -738,14 +738,8 @@ status_t AudioHardware::doRouting_l()
             speaker_rate = AUDIO_HW_OUT_SAMPLERATE;
         }
         // Flush old data (wrong rate) from I2S driver before changing rate.
-        if (mOutput) {
+        if (mOutput)
             mOutput->flush();
-            if (ecnsEnabled) {
-                mOutput->setNumBufs(AUDIO_HW_NUM_OUT_BUF);
-            } else {
-                mOutput->setNumBufs(AUDIO_HW_NUM_OUT_BUF_LONG);
-            }
-        }
         // Now the DMA is empty, change the rate.
         if (::ioctl(mCpcapCtlFd, CPCAP_AUDIO_OUT_SET_RATE,
                   speaker_rate) < 0)
@@ -917,8 +911,6 @@ status_t AudioHardware::AudioStreamOutTegra::init()
     OPEN_FD(mSpdifFd, "/dev/spdif_out")
     OPEN_FD(mSpdifFdCtl, "/dev/spdif_out_ctl")
 #undef OPEN_FD
-
-    setNumBufs(AUDIO_HW_NUM_OUT_BUF_LONG);
 
     mInit = true;
     return NO_ERROR;
@@ -1247,16 +1239,6 @@ void AudioHardware::AudioStreamOutTegra::flush()
     if (mSpdifFdCtl >= 0 && ::ioctl(mSpdifFdCtl, TEGRA_AUDIO_OUT_FLUSH) < 0)
        LOGE("could not flush spdif: %s", strerror(errno));
     LOGD("AudioStreamOutTegra::flush() returns");
-}
-
-// FIXME: this is a workaround for issue 3387419 with impact on latency
-// to be removed when root cause is fixed
-void AudioHardware::AudioStreamOutTegra::setNumBufs(int numBufs)
-{
-    Mutex::Autolock lock(mFdLock);
-    LOGD("AudioStreamOutTegra::setNumBufs()");
-    if (::ioctl(mFdCtl, TEGRA_AUDIO_OUT_SET_NUM_BUFS, &numBufs) < 0)
-       LOGE("could not set number of output buffers: %s", strerror(errno));
 }
 
 // Called with mLock and mHardware->mLock held
