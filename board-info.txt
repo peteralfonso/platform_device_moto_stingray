@@ -1,4 +1,4 @@
 require mid=001
 require product=stingray
-require version-bootloader=1033
+require version-bootloader=1034
 require version-baseband=N_02.0F.00R
