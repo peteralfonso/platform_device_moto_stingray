@@ -126,6 +126,8 @@ on boot
     write /sys/module/wakelock/parameters/debug_mask 7
     # No need to continuously scan w1 bus
     write /sys/devices/w1\ bus\ master/w1_master_search 1
+    # Disable charging LED
+    write /sys/class/gpio/gpio168/value 1
 
 # Ecompass daemon
 service akmd2 /system/bin/akmd2
