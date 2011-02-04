@@ -125,10 +125,6 @@ set_light_backlight(struct light_device_t *dev,
 
 	pthread_mutex_lock(&g_lock);
 	err = write_int("/sys/class/leds/lcd-backlight/brightness", brightness);
-
-	// disable charging LED when screen is on
-	// 0 = enable, 1 = disable
-	write_int("/sys/class/gpio/gpio168/value", brightness ? 1 : 0);
 	pthread_mutex_unlock(&g_lock);
 
 	return err;

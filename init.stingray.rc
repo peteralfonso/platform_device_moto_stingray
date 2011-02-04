@@ -73,8 +73,6 @@ on boot
     chmod 660 /sys/class/leds/notification-led/brightness
     chown system system /sys/class/leds/notification-led/blink
     chmod 660 /sys/class/leds/notification-led/blink
-    chown system system /sys/class/gpio/gpio168/value
-    chmod 660 /sys/class/gpio/gpio168/value
 
     chmod 666 /dev/nvhost-ctrl
     chmod 666 /dev/nvhost-display
@@ -128,6 +126,8 @@ on boot
     write /sys/module/wakelock/parameters/debug_mask 7
     # No need to continuously scan w1 bus
     write /sys/devices/w1\ bus\ master/w1_master_search 1
+    # Disable charging LED
+    write /sys/class/gpio/gpio168/value 1
 
 # Ecompass daemon
 service akmd2 /system/bin/akmd2
