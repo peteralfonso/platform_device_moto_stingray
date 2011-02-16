@@ -78,6 +78,3 @@ endif
 
 TARGET_RECOVERY_UI_LIB := librecovery_ui_stingray
 RECOVERY_24_BIT := true
-
-# Avoid the generation of ldrcc instructions
-NEED_WORKAROUND_CORTEX_A9_745320 := true
