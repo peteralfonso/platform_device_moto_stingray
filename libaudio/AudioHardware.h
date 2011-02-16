@@ -280,7 +280,7 @@ private:
                 void        reopenReconfigDriver();
 
                 AudioHardware* mHardware;
-        mutable Mutex       mLock;
+                Mutex       mLock;
                 int         mFd;
                 int         mFdCtl;
                 int         mState;
@@ -303,6 +303,7 @@ private:
         mutable uint32_t    mTotalBuffersRead;
         mutable nsecs_t     mStartTimeNs;
                 int         mDriverRate;
+        mutable Mutex       mFramesLock;
     };
 
             static const uint32_t inputSamplingRates[];

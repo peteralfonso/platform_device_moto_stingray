@@ -1645,7 +1645,10 @@ ssize_t AudioHardware::AudioStreamInTegra::read(void* buffer, ssize_t bytes)
             goto error;
         }
 
-        mTotalBuffersRead++;
+        {
+            Mutex::Autolock _fl(mFramesLock);
+            mTotalBuffersRead++;
+        }
         return ret;
     }
 
@@ -1736,8 +1739,11 @@ status_t AudioHardware::AudioStreamInTegra::online_l()
             mLocked = true;
             mHardware->doRouting_l();
             mLocked = false;
-            mTotalBuffersRead = 0;
-            mStartTimeNs = systemTime();
+            {
+                Mutex::Autolock _fl(mFramesLock);
+                mTotalBuffersRead = 0;
+                mStartTimeNs = systemTime();
+            }
         }
     }
 
@@ -1858,7 +1864,7 @@ String8 AudioHardware::AudioStreamInTegra::getParameters(const String8& keys)
 
 unsigned int  AudioHardware::AudioStreamInTegra::getInputFramesLost() const
 {
-    Mutex::Autolock _l(mLock);
+    Mutex::Autolock _l(mFramesLock);
     unsigned int lostFrames = 0;
     if (!getStandby()) {
         unsigned int framesPerBuffer = bufferSize() / frameSize();
