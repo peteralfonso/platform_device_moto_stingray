@@ -3,7 +3,7 @@
 /sdcard		vfat		/dev/block/sda1
 /system		ext4		/dev/block/platform/sdhci-tegra.3/by-name/system
 /cache		ext4		/dev/block/platform/sdhci-tegra.3/by-name/cache
-/data		ext4		/dev/block/platform/sdhci-tegra.3/by-name/userdata
+/data		ext4		/dev/block/platform/sdhci-tegra.3/by-name/userdata	length=-16384
 /misc 		emmc 		/dev/block/platform/sdhci-tegra.3/by-name/misc
 /boot		emmc		/dev/block/platform/sdhci-tegra.3/by-name/boot
 /recovery	emmc		/dev/block/platform/sdhci-tegra.3/by-name/recovery
