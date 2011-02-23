@@ -18,4 +18,4 @@ $(call inherit-product, device/moto/wingray/device.mk)
 
 # Overrides
 DEVICE_PACKAGE_OVERLAYS := \
-    device/moto/stingray/overlay
+    device/moto/stingray/overlay device/moto/wingray/overlay
