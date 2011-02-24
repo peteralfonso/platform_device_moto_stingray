@@ -14,7 +14,9 @@
  * limitations under the License.
  */
 
+#include <string.h>
 #include <linux/input.h>
+#include <cutils/properties.h>
 
 #include "recovery_ui.h"
 #include "common.h"
@@ -76,12 +78,27 @@ int device_perform_action(int which) {
     return which;
 }
 
-int device_wipe_data() {
-    ui_print("Performing BP clear...\n");
-    int result = bp_master_clear();
-    if(result == 0)
-        ui_print("BP clear complete successfully.\n");
+static int device_has_bp(void) {
+    char value[PROPERTY_VALUE_MAX];
+
+    property_get("ro.carrier", value, "");
+    if (strcmp("wifi-only", value) == 0)
+        return 0;
     else
-        ui_print("BP clear failed.\n");
+        return 1;
+}
+
+int device_wipe_data() {
+    int result = 0;
+
+    if (device_has_bp()) {
+        ui_print("Performing BP clear...\n");
+        result = bp_master_clear();
+        if(result == 0)
+            ui_print("BP clear complete successfully.\n");
+        else
+            ui_print("BP clear failed.\n");
+    }
+
     return 0;
 }
