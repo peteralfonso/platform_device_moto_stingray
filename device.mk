@@ -14,7 +14,10 @@
 # limitations under the License.
 #
 
-$(call inherit-product, device/moto/wingray/device.mk)
+$(call inherit-product, device/moto/wingray/device_base.mk)
+
+PRODUCT_COPY_FILES += \
+    device/moto/stingray/ril/tty2ttyd:system/bin/tty2ttyd \
 
 # Overrides
 DEVICE_PACKAGE_OVERLAYS := \
