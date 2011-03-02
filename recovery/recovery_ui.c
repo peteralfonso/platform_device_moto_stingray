@@ -34,10 +34,6 @@ char* MENU_ITEMS[] = { "reboot system now",
                        NULL };
 
 void device_ui_init(UIParameters* ui_parameters) {
-    ui_parameters->update_fps = 20;
-    ui_parameters->installing_frames = 7;
-    ui_parameters->install_overlay_offset_x = 34;
-    ui_parameters->install_overlay_offset_y = 78;
 }
 
 int device_recovery_start() {
