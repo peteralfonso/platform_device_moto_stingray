@@ -47,12 +47,6 @@ TARGET_USERIMAGES_USE_EXT4 := true
 
 BOARD_SYSTEMIMAGE_PARTITION_SIZE := 251658240
 BOARD_USERDATAIMAGE_PARTITION_SIZE := 31399067648
-
-# revert this once we obtain the 16GB userdata image on the build server.
-ifeq ($(TARGET_PRODUCT),trygon_with_data_preloaded)
-BOARD_USERDATAIMAGE_PARTITION_SIZE := 15544598528
-endif
-
 BOARD_FLASH_BLOCK_SIZE := 4096
 
 # Wifi related defines
