@@ -1,0 +1,41 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+
+<!-- use empty string to specify no proxy or port -->
+<!-- This version must agree with that in apps/common/res/apns.xml -->
+<apns version="6">
+    <!-- Modify Apn database for VZW LTE support -->
+    <apn carrier="Verizon Internet"
+        mcc="310"
+        mnc="004"
+        apn="VZWINTERNET"
+        mmsc="http://mms.vtext.com/servlets/mms"
+        type="default,mms,dun"
+        protocol="IPv6v4"
+        roaming_protocol="IPv6v4"
+    />
+    <apn carrier="Verizon FOTA"
+        mcc="310"
+        mnc="004"
+        apn="VZWADMIN"
+        type="fota"
+        protocol="IPv6v4"
+        roaming_protocol="IPv6v4"
+    />
+    <apn carrier="Verizon IMS"
+        mcc="310"
+        mnc="004"
+        apn="VZWIMS"
+        type="ims"
+        protocol="IPv6v4"
+        roaming_protocol="IPv6v4"
+    />
+    <apn carrier="Verizon CBS"
+        mcc="310"
+        mnc="004"
+        apn="VZWAPP"
+        type="cbs"
+        protocol="IPv6v4"
+        roaming_protocol="IPv6v4"
+    />
+    <!-- END modify Apn database for VZW LTE support -->
+</apns>

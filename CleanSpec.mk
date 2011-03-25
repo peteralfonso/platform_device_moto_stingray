@@ -49,6 +49,11 @@ $(call add-clean-step, rm -rf $(PRODUCT_OUT)/system/bin/sh)
 $(call add-clean-step, rm -rf $(PRODUCT_OUT)/system/bin/ash)
 $(call add-clean-step, rm -rf $(PRODUCT_OUT)/system/bin/sh)
 $(call add-clean-step, rm -rf $(PRODUCT_OUT)/system/bin/mksh)
+$(call add-clean-step, rm -rf $(PRODUCT_OUT)/android-info.txt)
+$(call add-clean-step, rm -rf $(PRODUCT_OUT)/system/build.prop)
+$(call add-clean-step, rm -rf $(PRODUCT_OUT)/system/lib/libmoto_ril.so)
+$(call add-clean-step, rm -rf $(PRODUCT_OUT)/system/lib/libril_rds.so)
+$(call add-clean-step, rm -rf $(PRODUCT_OUT)/system/etc/apns-conf.xml)
 
 # ************************************************
 # NEWER CLEAN STEPS MUST BE AT THE END OF THE LIST
