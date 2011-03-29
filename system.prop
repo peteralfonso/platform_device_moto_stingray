@@ -1,15 +1,24 @@
 # RIL and telephony related settings
 rild.libargs=-d /dev/chnlat10
-rild.libpath=/system/lib/libmoto_ril.so
+#Point to lte, CDMA, MM RILs
+lte_ril.libpath=/system/lib/libmoto_lte_ril.so
+cdma_ril.libpath=/system/lib/libmoto_cdma_ril.so
+rild.libpath=/system/lib/libmoto_mm_ril.so
+ril.rat=LTE
 persist.ril.mux.ttydevice=/dev/usb/tty2-1:1.2
-persist.ril.mux.noofchannels=8
+# Increase # channels to 10 to allow M2M communication
+persist.ril.mux.noofchannels=10
 persist.ril.modem.mode=1
 ro.cdma.home.operator.numeric=310004
 ro.cdma.home.operator.alpha=Verizon
 ro.cdma.homesystem=64,65,76,77,78,79,80,81,82,83
 ro.cdma.data_retry_config=default_randomization=2000,0,0,120000,180000,540000,960000
 persist.ril.modem.ttydevice=/dev/usb/tty2-1:1.4
+#Leave default mode to 4 (CDMA) but need it to be Global (7) for LTE/CDMA
 ro.telephony.default_network=4
+
+#For FW to support the LTE and eHRPD capability
+ro.telephony.lte_on_cdma=1
 
 # The OpenGL ES API level that is natively supported by this device.
 # This is a 16.16 fixed point number

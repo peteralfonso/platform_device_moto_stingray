@@ -18,6 +18,18 @@ $(call inherit-product, device/moto/wingray/device_base.mk)
 
 PRODUCT_COPY_FILES += \
     device/moto/stingray/ril/tty2ttyd:system/bin/tty2ttyd \
+    device/moto/stingray/apns-conf.xml:system/etc/apns-conf.xml
+
+ifneq ($(AP_RIL_BLDSRC),1)
+PRODUCT_COPY_FILES += \
+    device/moto/stingray/ril/libmoto_cdma_ril.so:system/lib/libmoto_cdma_ril.so \
+    device/moto/stingray/ril/libmoto_rds_ril.so:system/lib/libmoto_rds_ril.so \
+    device/moto/stingray/ril/libmoto_qmi_ril.so:system/lib/libmoto_qmi_ril.so \
+    device/moto/stingray/ril/libmoto_nwif_ril.so:system/lib/libmoto_nwif_ril.so \
+    device/moto/stingray/ril/libmoto_lte_ril.so:system/lib/libmoto_lte_ril.so \
+    device/moto/stingray/ril/libmoto_db_ril.so:system/lib/libmoto_db_ril.so \
+    device/moto/stingray/ril/libmoto_mm_ril.so:system/lib/libmoto_mm_ril.so
+endif
 
 # Overrides
 DEVICE_PACKAGE_OVERLAYS := \
