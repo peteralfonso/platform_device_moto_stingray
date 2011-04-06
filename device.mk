@@ -18,6 +18,7 @@ $(call inherit-product, device/moto/wingray/device_base.mk)
 
 PRODUCT_COPY_FILES += \
     device/moto/stingray/ril/tty2ttyd:system/bin/tty2ttyd \
+    device/moto/stingray/ril/wrigley-diag.sh:system/bin/wrigley-diag.sh \
     device/moto/stingray/apns-conf.xml:system/etc/apns-conf.xml
 
 ifneq ($(AP_RIL_BLDSRC),1)
