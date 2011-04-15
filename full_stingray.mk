@@ -29,4 +29,4 @@ $(call inherit-product, device/moto/stingray/device.mk)
 PRODUCT_NAME := full_stingray
 PRODUCT_DEVICE := stingray
 PRODUCT_BRAND := Android
-PRODUCT_MODEL := Full Android on Flatfish
+PRODUCT_MODEL := Full Android on Stingray
