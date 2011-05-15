@@ -19,6 +19,7 @@ $(call inherit-product, device/moto/wingray/device_base.mk)
 PRODUCT_COPY_FILES += \
     device/moto/stingray/ril/tty2ttyd:system/bin/tty2ttyd \
     device/moto/stingray/ril/wrigley-diag.sh:system/bin/wrigley-diag.sh \
+    device/moto/stingray/ril/base64:system/bin/base64 \
     device/moto/stingray/apns-conf.xml:system/etc/apns-conf.xml
 
 ifneq ($(AP_RIL_BLDSRC),1)
@@ -30,6 +31,14 @@ PRODUCT_COPY_FILES += \
     device/moto/stingray/ril/libmoto_lte_ril.so:system/lib/libmoto_lte_ril.so \
     device/moto/stingray/ril/libmoto_db_ril.so:system/lib/libmoto_db_ril.so \
     device/moto/stingray/ril/libmoto_mm_ril.so:system/lib/libmoto_mm_ril.so
+ifneq ($(TARGET_BUILD_VARIANT),user)
+PRODUCT_COPY_FILES += \
+    device/moto/stingray/ril/vril-dump:system/bin/vril-dump \
+    device/moto/stingray/ril/mm-lcm-qc-dump.sh:system/bin/mm-lcm-qc-dump.sh \
+    device/moto/stingray/ril/lcm-dump.sh:system/bin/lcm-dump.sh \
+    device/moto/stingray/ril/qbp-dump.sh:system/bin/qbp-dump.sh \
+    device/moto/stingray/ril/qbpfs:system/bin/qbpfs
+endif
 endif
 
 # Overrides
