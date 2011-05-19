@@ -17,6 +17,9 @@ persist.ril.modem.ttydevice=/dev/usb/tty2-1:1.4
 #Leave default mode to 4 (CDMA) but need it to be Global (7) for LTE/CDMA
 ro.telephony.default_network=4
 
+# Disable ims by setting imsapp.mode to all_dependency_met
+imsapp.mode=all_dependency_met
+
 # Set to 1 to tell FW that hardware supports LTE and eHRPD capability
 telephony.lte_on_cdma=1
 
