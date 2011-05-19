@@ -30,7 +30,8 @@ PRODUCT_COPY_FILES += \
     device/moto/stingray/ril/libmoto_nwif_ril.so:system/lib/libmoto_nwif_ril.so \
     device/moto/stingray/ril/libmoto_lte_ril.so:system/lib/libmoto_lte_ril.so \
     device/moto/stingray/ril/libmoto_db_ril.so:system/lib/libmoto_db_ril.so \
-    device/moto/stingray/ril/libmoto_mm_ril.so:system/lib/libmoto_mm_ril.so
+    device/moto/stingray/ril/libmoto_mm_ril.so:system/lib/libmoto_mm_ril.so \
+    device/moto/stingray/ril/libmoto_mm_ril.so:system/lib/libmoto_mdmctrl.so
 ifneq ($(TARGET_BUILD_VARIANT),user)
 PRODUCT_COPY_FILES += \
     device/moto/stingray/ril/vril-dump:system/bin/vril-dump \
