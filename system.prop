@@ -18,7 +18,7 @@ persist.ril.modem.ttydevice=/dev/usb/tty2-1:1.4
 ro.telephony.default_network=4
 
 # Set to 1 to tell FW that hardware supports LTE and eHRPD capability
-telephony.lte_on_cdma=0
+telephony.lte_on_cdma=1
 
 # The OpenGL ES API level that is natively supported by this device.
 # This is a 16.16 fixed point number
@@ -28,9 +28,4 @@ ro.opengles.version = 131072
 # refer to frameworks/base/telephony/java/com/android/
 # internal/telephony/cdma/CDMAPhone.java for the schema:
 ro.cdma.otaspnumschema=SELC,1,80,99
-
-# Disable IMS by setting imsapp.mode to all_dependency_met
-#imsapp.mode=all_dependency_met
-
-# Give extra time for LTE bug dumps
-ril.dumpstate.timeout=75
+imsapp.mode=all_dependency_met
