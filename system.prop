@@ -20,8 +20,8 @@ ro.telephony.default_network=4
 # Disable ims by setting imsapp.mode to all_dependency_met
 imsapp.mode=all_dependency_met
 
-# Set to 1 to tell FW that hardware supports LTE and eHRPD capability
-telephony.lte_on_cdma=1
+# The value of the kernel command line product_type variable for lte on cdma devices
+telephony.lteOnCdmaProductType=clw
 
 # The OpenGL ES API level that is natively supported by this device.
 # This is a 16.16 fixed point number
