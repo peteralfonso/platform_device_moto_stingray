@@ -31,4 +31,10 @@ ro.opengles.version = 131072
 # refer to frameworks/base/telephony/java/com/android/
 # internal/telephony/cdma/CDMAPhone.java for the schema:
 ro.cdma.otaspnumschema=SELC,1,80,99
-imsapp.mode=all_dependency_met
+
+# Give extra time for LTE bug dumps
+ril.dumpstate.timeout=75
+
+# Retry config when GSM DCT is used for EHRPD/LTE call
+ro.gsm.data_retry_config=max_retries=infinite,default_randomization=2000,0,0,120000,180000,540000,960000
+ro.gsm.2nd_data_retry_config=max_retries=infinite,default_randomization=2000,0,0,120000,180000,540000,960000
