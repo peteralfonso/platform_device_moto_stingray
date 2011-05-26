@@ -18,7 +18,7 @@ persist.ril.modem.ttydevice=/dev/usb/tty2-1:1.4
 ro.telephony.default_network=4
 
 # Disable ims by setting imsapp.mode to all_dependency_met
-imsapp.mode=all_dependency_met
+#imsapp.mode=all_dependency_met
 
 # The value of the kernel command line product_type variable for lte on cdma devices
 telephony.lteOnCdmaProductType=clw
