@@ -18,8 +18,10 @@ $(call inherit-product, device/moto/wingray/device_base.mk)
 
 PRODUCT_COPY_FILES += \
     device/moto/stingray/ril/tty2ttyd:system/bin/tty2ttyd \
-    device/moto/stingray/ril/wrigley-diag.sh:system/bin/wrigley-diag.sh \
     device/moto/stingray/ril/base64:system/bin/base64 \
+    device/moto/stingray/ril/libb64.so:system/lib/libb64.so \
+    device/moto/stingray/ril/extract-embedded-files:system/bin/extract-embedded-files \
+    device/moto/stingray/ril/vril-dump:system/bin/vril-dump \
     device/moto/stingray/apns-conf.xml:system/etc/apns-conf.xml
 
 ifneq ($(AP_RIL_BLDSRC),1)
@@ -31,16 +33,38 @@ PRODUCT_COPY_FILES += \
     device/moto/stingray/ril/libmoto_lte_ril.so:system/lib/libmoto_lte_ril.so \
     device/moto/stingray/ril/libmoto_db_ril.so:system/lib/libmoto_db_ril.so \
     device/moto/stingray/ril/libmoto_mm_ril.so:system/lib/libmoto_mm_ril.so \
-    device/moto/stingray/ril/libmoto_mdmctrl.so:system/lib/libmoto_mdmctrl.so
+    device/moto/stingray/ril/libmoto_mdmctrl.so:system/lib/libmoto_mdmctrl.so \
+    device/moto/stingray/ril/libbabysit.so:system/lib/libbabysit.so \
+    device/moto/stingray/ril/mm-wrigley-qc-dump.sh:system/bin/mm-wrigley-qc-dump.sh \
+    device/moto/stingray/ril/wrigley-dump.sh:system/bin/wrigley-dump.sh \
+    device/moto/stingray/ril/wrigley-diag.sh:system/bin/wrigley-diag.sh \
+    device/moto/stingray/ril/wrigley-fetch-mpr.sh:system/bin/wrigley-fetch-mpr.sh
 ifneq ($(TARGET_BUILD_VARIANT),user)
 PRODUCT_COPY_FILES += \
-    device/moto/stingray/ril/vril-dump:system/bin/vril-dump \
-    device/moto/stingray/ril/mm-lcm-qc-dump.sh:system/bin/mm-lcm-qc-dump.sh \
-    device/moto/stingray/ril/lcm-dump.sh:system/bin/lcm-dump.sh \
     device/moto/stingray/ril/qbp-dump.sh:system/bin/qbp-dump.sh \
     device/moto/stingray/ril/qbpfs:system/bin/qbpfs
 endif
 endif
+
+PRODUCT_PACKAGES += \
+    nc \
+    tty2ttyd \
+    base64 \
+    libb64 \
+    extract-embedded-files \
+    libmoto_cdma_ril \
+    libmoto_rds_ril \
+    libmoto_qmi_ril \
+    libmoto_nwif_ril \
+    libmoto_lte_ril \
+    libmoto_db_ril \
+    libmoto_mm_ril \
+    libmoto_mdmctrl \
+    libbabysit \
+    mm-wrigley-qc-dump \
+    wrigley-dump \
+    wrigley-diag \
+    wrigley-fetch-mpr
 
 # Overrides
 DEVICE_PACKAGE_OVERLAYS := \
