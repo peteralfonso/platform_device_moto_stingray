@@ -11,6 +11,7 @@ for iface in `ls /sys/class/net` ; do
             echo 1 > /proc/sys/net/ipv4/ip_forward;
             /system/bin/iptables -t nat -A PREROUTING -p tcp -i $iface -d 192.168.16.2 --dport 11006 -j DNAT --to 192.168.20.2:11006;
             /system/bin/iptables -A FORWARD -p tcp -i $iface -d 192.168.20.2 --dport 11006 -j ACCEPT;
+            /system/bin/iptables -P FORWARD ACCEPT
             isBlanFound=1;
             break
         ;;
