@@ -1,3 +1,3 @@
 #!/system/bin/sh
 
-/system/bin/mm-lcm-qc-dump.sh
+/system/bin/mm-wrigley-qc-dump.sh

@@ -38,3 +38,5 @@ ril.dumpstate.timeout=75
 # Retry config when GSM DCT is used for EHRPD/LTE call
 ro.gsm.data_retry_config=max_retries=infinite,default_randomization=2000,0,0,120000,180000,540000,960000
 ro.gsm.2nd_data_retry_config=max_retries=infinite,default_randomization=2000,0,0,120000,180000,540000,960000
+
+ro.ril.panic.reporter=apr
