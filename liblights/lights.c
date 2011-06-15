@@ -136,10 +136,8 @@ set_notification_light(struct light_state_t const* state)
 	unsigned int brightness = rgb_to_brightness(state);
 	int blink = state->flashOnMS;
 
-#if 0
 	LOGD("set_notification_light colorRGB=%08X, onMS=%d, offMS=%d\n",
 			state->color, state->flashOnMS, state->flashOffMS);
-#endif
 
 	write_int("/sys/class/leds/notification-led/brightness", brightness);
 	write_int("/sys/class/leds/notification-led/blink", blink);
