@@ -53,6 +53,56 @@ do
     ;;
   nvidia)
     TO_EXTRACT="\
+            system/etc/firmware/nvddk_audiofx_core.axf \
+            system/etc/firmware/nvddk_audiofx_transport.axf \
+            system/etc/firmware/nvmm_aacdec.axf \
+            system/etc/firmware/nvmm_adtsdec.axf \
+            system/etc/firmware/nvmm_audiomixer.axf \
+            system/etc/firmware/nvmm_h264dec.axf \
+            system/etc/firmware/nvmm_jpegdec.axf \
+            system/etc/firmware/nvmm_jpegenc.axf \
+            system/etc/firmware/nvmm_manager.axf \
+            system/etc/firmware/nvmm_mp2dec.axf \
+            system/etc/firmware/nvmm_mp3dec.axf \
+            system/etc/firmware/nvmm_mpeg4dec.axf \
+            system/etc/firmware/nvmm_reference.axf \
+            system/etc/firmware/nvmm_service.axf \
+            system/etc/firmware/nvmm_sorensondec.axf \
+            system/etc/firmware/nvmm_sw_mp3dec.axf \
+            system/etc/firmware/nvmm_wavdec.axf \
+            system/etc/firmware/nvrm_avp.bin \
+            system/lib/egl/libEGL_tegra.so \
+            system/lib/egl/libGLESv1_CM_tegra.so \
+            system/lib/egl/libGLESv2_tegra.so \
+            system/lib/hw/camera.stingray.so \
+            system/lib/hw/gps.stingray.so \
+            system/lib/hw/gralloc.tegra.so \
+            system/lib/hw/hwcomposer.tegra.so \
+            system/lib/libnvddk_2d.so \
+            system/lib/libnvddk_2d_v2.so \
+            system/lib/libnvddk_audiofx.so \
+            system/lib/libnvdispatch_helper.so \
+            system/lib/libnvdispmgr_d.so \
+            system/lib/libnvmm.so \
+            system/lib/libnvmm_camera.so \
+            system/lib/libnvmm_contentpipe.so \
+            system/lib/libnvmm_image.so \
+            system/lib/libnvmm_manager.so \
+            system/lib/libnvmm_service.so \
+            system/lib/libnvmm_tracklist.so \
+            system/lib/libnvmm_utils.so \
+            system/lib/libnvmm_video.so \
+            system/lib/libnvodm_imager.so \
+            system/lib/libnvodm_query.so \
+            system/lib/libnvomx.so \
+            system/lib/libnvomxilclient.so \
+            system/lib/libnvos.so \
+            system/lib/libnvrm.so \
+            system/lib/libnvrm_channel.so \
+            system/lib/libnvrm_graphics.so \
+            system/lib/libnvsm.so \
+            system/lib/libnvwsi.so \
+            system/lib/libstagefrighthw.so \
             "
     ;;
   esac
