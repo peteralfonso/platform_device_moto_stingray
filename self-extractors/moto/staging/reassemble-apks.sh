@@ -1,4 +1,5 @@
-# Copyright (C) 2010 The Android Open Source Project
+#!/bin/sh
+# Copyright (C) 2011 The Android Open Source Project
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,18 +13,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Motorola blobs necessary for stingray / wingray
-PRODUCT_COPY_FILES := \
-    vendor/moto/stingray/proprietary/bugtogo.sh:system/bin/bugtogo.sh \
-    vendor/moto/stingray/proprietary/ftmipcd:system/bin/ftmipcd \
-    vendor/moto/stingray/proprietary/location:system/bin/location
-
-# Motorola proprietary applications to support stingray / wingray
-PRODUCT_PACKAGES := \
+VENDOR=moto
+DEVICE=stingray
+PACKAGES="\
     MotoImsServer \
     MotoLocationProxy \
     MotoLteTelephony \
     MotoModemUtil \
     MotoSimUiHelper \
     StingrayProgramMenu \
-    StingrayProgramMenuSystem
+    StingrayProgramMenuSystem \
+    "
+
+for APK in $PACKAGES
+do
+  (cd vendor/$VENDOR/$DEVICE/proprietary/$APK.apk.parts ; zip -r ../$APK.unsigned.apk .)
+  java -jar $(find out/host -name signapk.jar) build/target/product/security/platform.x509.pem build/target/product/security/platform.pk8 vendor/$VENDOR/$DEVICE/proprietary/$APK.unsigned.apk vendor/$VENDOR/$DEVICE/proprietary/$APK.apk
+done

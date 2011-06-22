@@ -39,6 +39,16 @@ do
     ;;
   moto)
     TO_EXTRACT="\
+            system/app/MotoImsServer.apk \
+            system/app/MotoLocationProxy.apk \
+            system/app/MotoLteTelephony.apk \
+            system/app/MotoModemUtil.apk \
+            system/app/MotoSimUiHelper.apk \
+            system/app/StingrayProgramMenu.apk \
+            system/app/StingrayProgramMenuSystem.apk \
+            system/bin/bugtogo.sh \
+            system/bin/ftmipcd \
+            system/bin/location \
             "
     ;;
   nvidia)
@@ -54,6 +64,14 @@ do
     if test $ONE_FILE = system/vendor/bin/gpsd -o $ONE_FILE = system/vendor/bin/pvrsrvinit
     then
       chmod a+x $FILEDIR/$(basename $ONE_FILE) || echo \ \ \ \ Error chmoding $ONE_FILE
+    fi
+    if test $(echo $ONE_FILE | grep \\.apk\$ | wc -l) = 1
+    then
+      echo \ \ \ \ Splitting $ONE_FILE
+      mkdir -p $FILEDIR/$(basename $ONE_FILE).parts || echo \ \ \ \ Error making parts dir for $ONE_FILE
+      unzip $FILEDIR/$(basename $ONE_FILE) -d $FILEDIR/$(basename $ONE_FILE).parts > /dev/null || echo \ \ \ \ Error unzipping $ONE_FILE
+      rm $FILEDIR/$(basename $ONE_FILE) || echo \ \ \ \ Error removing original $ONE_FILE
+      rm -rf $FILEDIR/$(basename $ONE_FILE).parts/META-INF || echo \ \ \ \ Error removing META-INF for $ONE_FILE
     fi
   done
   echo \ \ Setting up $COMPANY-specific makefiles
