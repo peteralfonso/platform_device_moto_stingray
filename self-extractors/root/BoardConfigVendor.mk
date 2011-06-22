@@ -16,3 +16,4 @@
 -include vendor/broadcom/stingray/BoardConfigStingray.mk
 -include vendor/moto/stingray/BoardConfigStingray.mk
 -include vendor/nvidia/stingray/BoardConfigStingray.mk
+-include vendor/unknown/stingray/BoardConfigStingray.mk

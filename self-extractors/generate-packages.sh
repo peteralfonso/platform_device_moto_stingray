@@ -21,7 +21,7 @@ ROOTDEVICE=stingray
 DEVICE=stingray
 MANUFACTURER=moto
 
-for COMPANY in akm broadcom moto nvidia
+for COMPANY in akm broadcom moto nvidia unknown
 do
   echo Processing files from $COMPANY
   rm -rf tmp
@@ -104,6 +104,13 @@ do
             system/lib/libnvsm.so \
             system/lib/libnvwsi.so \
             system/lib/libstagefrighthw.so \
+            "
+    ;;
+  unknown)
+    TO_EXTRACT="\
+            system/lib/libpkip.so \
+            system/lib/libtpa_core.so \
+            system/lib/libtpa.so \
             "
     ;;
   esac

@@ -12,8 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-$(call inherit-product-if-exists, vendor/akm/stingray/device-stingray.mk)
-$(call inherit-product-if-exists, vendor/broadcom/stingray/device-stingray.mk)
-$(call inherit-product-if-exists, vendor/moto/stingray/device-stingray.mk)
-$(call inherit-product-if-exists, vendor/nvidia/stingray/device-stingray.mk)
-$(call inherit-product-if-exists, vendor/unknown/stingray/device-stingray.mk)
+# blobs from unknown owners necessary for stingray / wingray
+PRODUCT_COPY_FILES := \
+    vendor/unknown/stingray/proprietary/libpkip.so:system/lib/libpkip.so \
+    vendor/unknown/stingray/proprietary/libtpa_core.so:system/lib/libtpa_core.so \
+    vendor/unknown/stingray/proprietary/libtpa.so:system/lib/libtpa.so \
+
