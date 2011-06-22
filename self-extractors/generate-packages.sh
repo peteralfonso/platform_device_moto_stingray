@@ -78,6 +78,7 @@ do
             system/lib/hw/gps.stingray.so \
             system/lib/hw/gralloc.tegra.so \
             system/lib/hw/hwcomposer.tegra.so \
+            system/lib/libcgdrv.so \
             system/lib/libnvddk_2d.so \
             system/lib/libnvddk_2d_v2.so \
             system/lib/libnvddk_audiofx.so \

@@ -18,6 +18,7 @@ PRODUCT_COPY_FILES := \
     vendor/nvidia/stingray/proprietary/gps.stingray.so:system/lib/hw/gps.stingray.so \
     vendor/nvidia/stingray/proprietary/gralloc.tegra.so:system/lib/hw/gralloc.tegra.so \
     vendor/nvidia/stingray/proprietary/hwcomposer.tegra.so:system/lib/hw/hwcomposer.tegra.so \
+    vendor/nvidia/stingray/proprietary/libcgdrv.so:system/lib/libcgdrv.so \
     vendor/nvidia/stingray/proprietary/libEGL_tegra.so:system/lib/egl/libEGL_tegra.so \
     vendor/nvidia/stingray/proprietary/libGLESv1_CM_tegra.so:system/lib/egl/libGLESv1_CM_tegra.so \
     vendor/nvidia/stingray/proprietary/libGLESv2_tegra.so:system/lib/egl/libGLESv2_tegra.so \
