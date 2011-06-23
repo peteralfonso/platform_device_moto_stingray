@@ -13,3 +13,5 @@
 # limitations under the License.
 
 # AKM blob necessary for stingray / wingray
+PRODUCT_COPY_FILES := \
+    vendor/akm/stingray/proprietary/akmd2:system/bin/akmd2

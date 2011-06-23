@@ -31,10 +31,12 @@ do
   case $COMPANY in
   akm)
     TO_EXTRACT="\
+            system/bin/akmd2 \
             "
     ;;
   broadcom)
     TO_EXTRACT="\
+            system/bin/brcm_guci_drv \
             "
     ;;
   moto)
