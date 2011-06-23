@@ -9,6 +9,8 @@ persist.ril.mux.ttydevice=/dev/usb/tty2-1:1.2
 # Increase # channels to 10 to allow M2M communication
 persist.ril.mux.noofchannels=10
 persist.ril.modem.mode=1
+# Enable ALWAYS_READ_IMSI_FROM_SIM
+persist.ril.features=800
 ro.cdma.home.operator.numeric=310004
 ro.cdma.home.operator.alpha=Verizon
 ro.cdma.homesystem=64,65,76,77,78,79,80,81,82,83
