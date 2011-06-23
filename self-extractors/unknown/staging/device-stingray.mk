@@ -14,6 +14,7 @@
 
 # blobs from unknown owners necessary for stingray / wingray
 PRODUCT_COPY_FILES := \
+    vendor/unknown/stingray/proprietary/bcm4329.cal:system/etc/wifi/bcm4329.cal \
     vendor/unknown/stingray/proprietary/libpkip.so:system/lib/libpkip.so \
     vendor/unknown/stingray/proprietary/libtpa_core.so:system/lib/libtpa_core.so \
     vendor/unknown/stingray/proprietary/libtpa.so:system/lib/libtpa.so \
