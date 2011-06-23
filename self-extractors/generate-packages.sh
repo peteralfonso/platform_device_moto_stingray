@@ -110,6 +110,7 @@ do
     ;;
   unknown)
     TO_EXTRACT="\
+            system/etc/wifi/bcm4329.cal \
             system/lib/libpkip.so \
             system/lib/libtpa_core.so \
             system/lib/libtpa.so \
