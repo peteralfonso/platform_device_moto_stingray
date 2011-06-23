@@ -13,3 +13,5 @@
 # limitations under the License.
 
 # broadcom blob necessary for stingray / wingray
+PRODUCT_COPY_FILES := \
+    vendor/broadcom/stingray/proprietary/brcm_guci_drv:system/bin/brcm_guci_drv
