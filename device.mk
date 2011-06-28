@@ -30,7 +30,7 @@ PRODUCT_COPY_FILES += \
     device/moto/stingray/ril/libmoto_rds_ril.so:system/lib/libmoto_rds_ril.so \
     device/moto/stingray/ril/libmoto_qmi_ril.so:system/lib/libmoto_qmi_ril.so \
     device/moto/stingray/ril/libmoto_nwif_ril.so:system/lib/libmoto_nwif_ril.so \
-    device/moto/stingray/ril/libmoto_nwif_ril.so:system/lib/libmoto_intfutil_ril.so \
+    device/moto/stingray/ril/libmoto_intfutil_ril.so:system/lib/libmoto_intfutil_ril.so \
     device/moto/stingray/ril/libmoto_lte_ril.so:system/lib/libmoto_lte_ril.so \
     device/moto/stingray/ril/libmoto_db_ril.so:system/lib/libmoto_db_ril.so \
     device/moto/stingray/ril/libmoto_mm_ril.so:system/lib/libmoto_mm_ril.so \
