@@ -54,6 +54,8 @@ $(call add-clean-step, rm -rf $(PRODUCT_OUT)/system/build.prop)
 $(call add-clean-step, rm -rf $(PRODUCT_OUT)/system/lib/libmoto_ril.so)
 $(call add-clean-step, rm -rf $(PRODUCT_OUT)/system/lib/libril_rds.so)
 $(call add-clean-step, rm -rf $(PRODUCT_OUT)/system/etc/apns-conf.xml)
+$(call add-clean-step, rm -rf $(PRODUCT_OUT)/system/bin/base64)
+$(call add-clean-step, rm -rf $(PRODUCT_OUT)/system/bin/extract-embedded-files)
 
 # ************************************************
 # NEWER CLEAN STEPS MUST BE AT THE END OF THE LIST
