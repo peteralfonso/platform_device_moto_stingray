@@ -56,6 +56,9 @@ $(call add-clean-step, rm -rf $(PRODUCT_OUT)/system/lib/libril_rds.so)
 $(call add-clean-step, rm -rf $(PRODUCT_OUT)/system/etc/apns-conf.xml)
 $(call add-clean-step, rm -rf $(PRODUCT_OUT)/system/bin/base64)
 $(call add-clean-step, rm -rf $(PRODUCT_OUT)/system/bin/extract-embedded-files)
+$(call add-clean-step, rm -rf $(PRODUCT_OUT)/system/lib/libmoto_lte_ril.so)
+$(call add-clean-step, rm -rf $(PRODUCT_OUT)/system/lib/libmoto_mm_ril.so)
+$(call add-clean-step, rm -rf $(PRODUCT_OUT)/android-info.txt)
 
 # ************************************************
 # NEWER CLEAN STEPS MUST BE AT THE END OF THE LIST
