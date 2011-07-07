@@ -22,6 +22,8 @@ PRODUCT_COPY_FILES += \
     device/moto/stingray/ril/libb64.so:system/lib/libb64.so \
     device/moto/stingray/ril/extract-embedded-files:system/bin/extract-embedded-files \
     device/moto/stingray/ril/vril-dump:system/bin/vril-dump \
+    device/moto/stingray/ril/logcatd:system/bin/logcatd \
+    device/moto/stingray/ril/logcatd-blan:system/bin/logcatd-blan \
     device/moto/stingray/apns-conf.xml:system/etc/apns-conf.xml
 
 ifneq ($(AP_RIL_BLDSRC),1)
@@ -63,6 +65,8 @@ PRODUCT_PACKAGES += \
     libmoto_mm_ril \
     libmoto_mdmctrl \
     libbabysit \
+    logcatd \
+    logcatd-blan \
     mm-wrigley-qc-dump \
     wrigley-dump \
     wrigley-diag \
