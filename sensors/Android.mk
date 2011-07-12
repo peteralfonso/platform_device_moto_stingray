@@ -16,8 +16,6 @@
 
 LOCAL_PATH:= $(call my-dir)
 
-ifneq ($(TARGET_SIMULATOR),true)
-
 # HAL module implemenation stored in
 # hw/<COPYPIX_HARDWARE_MODULE_ID>.<ro.board.platform>.so
 include $(CLEAR_VARS)
@@ -44,5 +42,3 @@ LOCAL_SHARED_LIBRARIES := liblog libcutils
 LOCAL_MODULE := sensors.stingray
 
 include $(BUILD_SHARED_LIBRARY)
-
-endif # !TARGET_SIMULATOR

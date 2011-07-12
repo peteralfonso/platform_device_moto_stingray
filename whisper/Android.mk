@@ -3,8 +3,6 @@
 LOCAL_PATH := $(call my-dir)
 include $(BUILD_PREBUILD)
 
-ifneq ($(TARGET_SIMULATOR),true)
-
 ############################
 include $(CLEAR_VARS)
 
@@ -22,5 +20,3 @@ LOCAL_MODULE := whisperd
 include $(BUILD_EXECUTABLE)
 
 #########################
-
-endif # !TARGET_SIMULATOR

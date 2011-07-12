@@ -1,4 +1,3 @@
-ifneq ($(TARGET_SIMULATOR),true)
 ifeq ($(TARGET_ARCH),arm)
 
 LOCAL_PATH := $(call my-dir)
@@ -13,4 +12,3 @@ LOCAL_MODULE := librecovery_ui_stingray
 include $(BUILD_STATIC_LIBRARY)
 
 endif   # TARGET_ARCH == arm
-endif   # !TARGET_SIMULATOR
