@@ -66,6 +66,7 @@ $(call add-clean-step, rm -rf $(PRODUCT_OUT)/system/lib/libmoto_mm_ril.so)
 $(call add-clean-step, rm -rf $(PRODUCT_OUT)/system/lib/libmoto_cdma_ril.so)
 $(call add-clean-step, rm -rf $(PRODUCT_OUT)/system/lib/libmoto_qmi_ril.so)
 $(call add-clean-step, rm -rf $(PRODUCT_OUT)/android-info.txt)
+$(call add-clean-step, rm -rf $(PRODUCT_OUT)/system/build.prop)
 
 # ************************************************
 # NEWER CLEAN STEPS MUST BE AT THE END OF THE LIST
