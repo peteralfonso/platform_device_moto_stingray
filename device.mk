@@ -45,6 +45,7 @@ PRODUCT_COPY_FILES += \
 ifneq ($(TARGET_BUILD_VARIANT),user)
 PRODUCT_COPY_FILES += \
     device/moto/stingray/ril/qbp-dump.sh:system/bin/qbp-dump.sh \
+    device/moto/stingray/ril/qbp-apr-dump.sh:system/bin/qbp-apr-dump.sh \
     device/moto/stingray/ril/qbpfs:system/bin/qbpfs
 endif
 endif
