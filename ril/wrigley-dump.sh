@@ -34,6 +34,24 @@ echo "file:end:txt:/${hostName}-ipv6_route.txt"
 # a connect timeout and a timeout on the main select() loop when doing reads
 # and writes.  Use a value that is not likely to false-positive, but also
 # provides adequate protection against hanging for a long time.
-for cmd in "state" "logs" "files" "panic" "atvc"; do
+for cmd in "state" "files" "atvc"; do
     echo "-o wrigley $cmd" | nc -w 10 192.168.20.2 3002
+done
+echo "file:begin:txt:wrigley/AdditionalExtractionInstructions.txt"
+echo "To extract logs.gz and panic.gz, you must do the following:"
+echo "    gunzip logs.gz"
+echo "    extract-embedded-files logs"
+echo "    gunzip panic.gz"
+echo "    extract-embedded-files panic"
+echo ""
+echo "These additional steps are required, because we are dumping an enormous"
+echo "amount of data into the bugreport.  Google demanded we reduce the overall"
+echo "number of lines we are generating.  To accomplish the reduction, we are"
+echo "doing compression prior to dumping into the bugreport.  We are sorry for"
+echo "the inconvenience."
+echo "file:end:txt:wrigley/AdditionalExtractionInstructions.txt"
+for cmd in "logs" "panic"; do
+    echo "file:begin:bin:wrigley/${cmd}.gz"
+    echo "$cmd" | nc -w 10 192.168.20.2 3002 | gzip | base64 -e
+    echo "file:end:bin:wrigley/${cmd}.gz"
 done
