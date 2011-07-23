@@ -17,6 +17,7 @@
 $(call inherit-product, device/moto/wingray/device_base.mk)
 
 PRODUCT_COPY_FILES += \
+    device/moto/stingray/oem-iptables-init.sh:system/bin/oem-iptables-init.sh \
     device/moto/stingray/ril/tty2ttyd:system/bin/tty2ttyd \
     device/moto/stingray/ril/base64:system/bin/base64 \
     device/moto/stingray/ril/libb64.so:system/lib/libb64.so \
@@ -41,6 +42,7 @@ PRODUCT_COPY_FILES += \
     device/moto/stingray/ril/mm-wrigley-qc-dump.sh:system/bin/mm-wrigley-qc-dump.sh \
     device/moto/stingray/ril/wrigley-dump.sh:system/bin/wrigley-dump.sh \
     device/moto/stingray/ril/wrigley-diag.sh:system/bin/wrigley-diag.sh \
+    device/moto/stingray/ril/wrigley-iptables.sh:system/bin/wrigley-iptables.sh \
     device/moto/stingray/ril/wrigley-fetch-mpr.sh:system/bin/wrigley-fetch-mpr.sh
 ifneq ($(TARGET_BUILD_VARIANT),user)
 PRODUCT_COPY_FILES += \
@@ -71,6 +73,7 @@ PRODUCT_PACKAGES += \
     mm-wrigley-qc-dump \
     wrigley-dump \
     wrigley-diag \
+    wrigley-iptables \
     wrigley-fetch-mpr
 
 # Overrides

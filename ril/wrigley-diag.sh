@@ -1,25 +1,8 @@
 #!/system/bin/sh
 
-isBlanFound=0
-
-for iface in `ls /sys/class/net` ; do
-    desc=`cat /sys/class/net/$iface/description`
-    case $desc in
-        "Motorola BLAN Interface")
-            echo "Found Motorola BLAN at $iface"
-            echo "Forwarding ports for Wrigley diagnostics"
-            echo 1 > /proc/sys/net/ipv4/ip_forward;
-            /system/bin/iptables -t nat -A PREROUTING -p tcp -i $iface -d 192.168.16.2 --dport 11006 -j DNAT --to 192.168.20.2:11006;
-            /system/bin/iptables -A FORWARD -p tcp -i $iface -d 192.168.20.2 --dport 11006 -j ACCEPT;
-            /system/bin/iptables -P FORWARD ACCEPT
-            isBlanFound=1;
-            break
-        ;;
-        *)
-            echo "$iface is not the Motorola BLAN";
-            continue
-        ;;
-    esac
-done
-
-case $isBlanFound in 0) echo "Could not find Motorola BLAN";; esac
+# Enable IP forwarding so the Wrigley can talk to diagnostics utilities
+# running on an attached host machine (typically Windows).
+echo 1 > /proc/sys/net/ipv4/ip_forward
+# We must also set ro.allow.ip.fwd=1 to prevent
+# system/netd/TetherController.cpp from setting this back to 0.
+setprop ro.allow.ip.fwd 1
