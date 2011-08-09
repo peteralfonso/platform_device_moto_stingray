@@ -25,7 +25,7 @@ PRODUCT_COPY_FILES += \
     device/moto/stingray/ril/vril-dump:system/bin/vril-dump \
     device/moto/stingray/ril/logcatd:system/bin/logcatd \
     device/moto/stingray/ril/logcatd-blan:system/bin/logcatd-blan \
-    device/moto/stingray/apns-conf.xml:system/etc/apns-conf.xml
+    device/sample/etc/apns-conf_verizon.xml:system/etc/apns-conf.xml
 
 ifneq ($(AP_RIL_BLDSRC),1)
 PRODUCT_COPY_FILES += \
