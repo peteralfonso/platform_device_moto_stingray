@@ -67,8 +67,11 @@ unzip -j -o ../../../${DEVICE}_update.zip system/etc/motorola/12m/tcmd_leds.cfg 
 unzip -j -o ../../../${DEVICE}_update.zip system/etc/security/suplcerts.bks -d ../../../vendor/$MANUFACTURER/$DEVICE/proprietary
 unzip -j -o ../../../${DEVICE}_update.zip system/etc/voip_aud_params.bin -d ../../../vendor/$MANUFACTURER/$DEVICE/proprietary
 unzip -j -o ../../../${DEVICE}_update.zip system/etc/wifi/bcm4329.cal -d ../../../vendor/$MANUFACTURER/$DEVICE/proprietary
+unzip -j -o ../../../${DEVICE}_update.zip system/lib/egl/libEGL_perfhud.so -d ../../../vendor/$MANUFACTURER/$DEVICE/proprietary
 unzip -j -o ../../../${DEVICE}_update.zip system/lib/egl/libEGL_tegra.so -d ../../../vendor/$MANUFACTURER/$DEVICE/proprietary
+unzip -j -o ../../../${DEVICE}_update.zip system/lib/egl/libGLESv1_CM_perfhud.so -d ../../../vendor/$MANUFACTURER/$DEVICE/proprietary
 unzip -j -o ../../../${DEVICE}_update.zip system/lib/egl/libGLESv1_CM_tegra.so -d ../../../vendor/$MANUFACTURER/$DEVICE/proprietary
+unzip -j -o ../../../${DEVICE}_update.zip system/lib/egl/libGLESv2_perfhud.so -d ../../../vendor/$MANUFACTURER/$DEVICE/proprietary
 unzip -j -o ../../../${DEVICE}_update.zip system/lib/egl/libGLESv2_tegra.so -d ../../../vendor/$MANUFACTURER/$DEVICE/proprietary
 unzip -j -o ../../../${DEVICE}_update.zip system/lib/hw/camera.stingray.so -d ../../../vendor/$MANUFACTURER/$DEVICE/proprietary
 unzip -j -o ../../../${DEVICE}_update.zip system/lib/hw/gps.stingray.so -d ../../../vendor/$MANUFACTURER/$DEVICE/proprietary
@@ -76,6 +79,7 @@ unzip -j -o ../../../${DEVICE}_update.zip system/lib/hw/gralloc.tegra.so -d ../.
 unzip -j -o ../../../${DEVICE}_update.zip system/lib/hw/hwcomposer.tegra.so -d ../../../vendor/$MANUFACTURER/$DEVICE/proprietary
 unzip -j -o ../../../${DEVICE}_update.zip system/lib/libcgdrv.so -d ../../../vendor/$MANUFACTURER/$DEVICE/proprietary
 unzip -j -o ../../../${DEVICE}_update.zip system/lib/libims_client_jni.so -d ../../../vendor/$MANUFACTURER/$DEVICE/proprietary
+unzip -j -o ../../../${DEVICE}_update.zip system/lib/libmoto_ecnswrapper.so -d ../../../vendor/$MANUFACTURER/$DEVICE/proprietary
 unzip -j -o ../../../${DEVICE}_update.zip system/lib/libnvddk_2d.so -d ../../../vendor/$MANUFACTURER/$DEVICE/proprietary
 unzip -j -o ../../../${DEVICE}_update.zip system/lib/libnvddk_2d_v2.so -d ../../../vendor/$MANUFACTURER/$DEVICE/proprietary
 unzip -j -o ../../../${DEVICE}_update.zip system/lib/libnvddk_audiofx.so -d ../../../vendor/$MANUFACTURER/$DEVICE/proprietary
@@ -106,6 +110,7 @@ unzip -j -o ../../../${DEVICE}_update.zip system/lib/libtpa.so -d ../../../vendo
 unzip -j -o ../../../${DEVICE}_update.zip system/lib/libtpa_core.so -d ../../../vendor/$MANUFACTURER/$DEVICE/proprietary
 unzip -j -o ../../../${DEVICE}_update.zip system/media/bootanimation-encrypted.zip -d ../../../vendor/$MANUFACTURER/$DEVICE/proprietary
 unzip -j -o ../../../${DEVICE}_update.zip system/media/bootanimation.zip -d ../../../vendor/$MANUFACTURER/$DEVICE/proprietary
+unzip -j -o ../../../${DEVICE}_update.zip system/vendor/etc/audio_effects.conf -d ../../../vendor/$MANUFACTURER/$DEVICE/proprietary
 unzip -j -o ../../../${DEVICE}_update.zip system/vendor/firmware/fw_bcm4329_mfg.bin -d ../../../vendor/$MANUFACTURER/$DEVICE/proprietary
 
 (cat << EOF) | sed s/__DEVICE__/$DEVICE/g | sed s/__MANUFACTURER__/$MANUFACTURER/g > ../../../vendor/$MANUFACTURER/$DEVICE/device-vendor-blobs.mk
@@ -166,8 +171,11 @@ PRODUCT_COPY_FILES += \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/suplcerts.bks:system/etc/security/suplcerts.bks \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/voip_aud_params.bin:system/etc/voip_aud_params.bin \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/bcm4329.cal:system/etc/wifi/bcm4329.cal \\
+    vendor/__MANUFACTURER__/__DEVICE__/proprietary/libEGL_perfhud.so:system/lib/egl/libEGL_perfhud.so \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/libEGL_tegra.so:system/lib/egl/libEGL_tegra.so \\
+    vendor/__MANUFACTURER__/__DEVICE__/proprietary/libGLESv1_CM_perfhud.so:system/lib/egl/libGLESv1_CM_perfhud.so \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/libGLESv1_CM_tegra.so:system/lib/egl/libGLESv1_CM_tegra.so \\
+    vendor/__MANUFACTURER__/__DEVICE__/proprietary/libGLESv2_perfhud.so:system/lib/egl/libGLESv2_perfhud.so \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/libGLESv2_tegra.so:system/lib/egl/libGLESv2_tegra.so \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/camera.stingray.so:system/lib/hw/camera.stingray.so \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/gps.stingray.so:system/lib/hw/gps.stingray.so \\
@@ -175,6 +183,7 @@ PRODUCT_COPY_FILES += \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/hwcomposer.tegra.so:system/lib/hw/hwcomposer.tegra.so \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/libcgdrv.so:system/lib/libcgdrv.so \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/libims_client_jni.so:system/lib/libims_client_jni.so \\
+    vendor/__MANUFACTURER__/__DEVICE__/proprietary/libmoto_ecnswrapper.so:system/lib/libmoto_ecnswrapper.so \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/libnvddk_2d.so:system/lib/libnvddk_2d.so \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/libnvddk_2d_v2.so:system/lib/libnvddk_2d_v2.so \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/libnvddk_audiofx.so:system/lib/libnvddk_audiofx.so \\
@@ -205,6 +214,7 @@ PRODUCT_COPY_FILES += \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/libtpa_core.so:system/lib/libtpa_core.so \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/bootanimation-encrypted.zip:system/media/bootanimation-encrypted.zip \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/bootanimation.zip:system/media/bootanimation.zip \\
+    vendor/__MANUFACTURER__/__DEVICE__/proprietary/audio_effects.conf:system/vendor/etc/audio_effects.conf \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/fw_bcm4329_mfg.bin:system/vendor/firmware/fw_bcm4329_mfg.bin
 
 # All the apks necessary for stingray
