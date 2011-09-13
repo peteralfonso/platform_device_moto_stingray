@@ -67,8 +67,11 @@ adb pull /system/etc/motorola/12m/tcmd_leds.cfg ../../../vendor/$MANUFACTURER/$D
 adb pull /system/etc/security/suplcerts.bks ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/suplcerts.bks
 adb pull /system/etc/voip_aud_params.bin ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/voip_aud_params.bin
 adb pull /system/etc/wifi/bcm4329.cal ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/bcm4329.cal
+adb pull /system/lib/egl/libEGL_perfhud.so ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/libEGL_perfhud.so
 adb pull /system/lib/egl/libEGL_tegra.so ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/libEGL_tegra.so
+adb pull /system/lib/egl/libGLESv1_CM_perfhud.so ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/libGLESv1_CM_perfhud.so
 adb pull /system/lib/egl/libGLESv1_CM_tegra.so ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/libGLESv1_CM_tegra.so
+adb pull /system/lib/egl/libGLESv2_perfhud.so ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/libGLESv2_perfhud.so
 adb pull /system/lib/egl/libGLESv2_tegra.so ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/libGLESv2_tegra.so
 adb pull /system/lib/hw/camera.stingray.so ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/camera.stingray.so
 adb pull /system/lib/hw/gps.stingray.so ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/gps.stingray.so
@@ -76,6 +79,7 @@ adb pull /system/lib/hw/gralloc.tegra.so ../../../vendor/$MANUFACTURER/$DEVICE/p
 adb pull /system/lib/hw/hwcomposer.tegra.so ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/hwcomposer.tegra.so
 adb pull /system/lib/libcgdrv.so ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/libcgdrv.so
 adb pull /system/lib/libims_client_jni.so ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/libims_client_jni.so
+adb pull /system/lib/libmoto_ecnswrapper.so ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/libmoto_ecnswrapper.so
 adb pull /system/lib/libnvddk_2d.so ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/libnvddk_2d.so
 adb pull /system/lib/libnvddk_2d_v2.so ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/libnvddk_2d_v2.so
 adb pull /system/lib/libnvddk_audiofx.so ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/libnvddk_audiofx.so
@@ -106,6 +110,7 @@ adb pull /system/lib/libtpa.so ../../../vendor/$MANUFACTURER/$DEVICE/proprietary
 adb pull /system/lib/libtpa_core.so ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/libtpa_core.so
 adb pull /system/media/bootanimation-encrypted.zip ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/bootanimation-encrypted.zip
 adb pull /system/media/bootanimation.zip ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/bootanimation.zip
+adb pull /system/vendor/etc/audio_effects.conf ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/audio_effects.conf
 adb pull /system/vendor/firmware/fw_bcm4329_mfg.bin ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/fw_bcm4329_mfg.bin
 
 (cat << EOF) | sed s/__DEVICE__/$DEVICE/g | sed s/__MANUFACTURER__/$MANUFACTURER/g > ../../../vendor/$MANUFACTURER/$DEVICE/device-vendor-blobs.mk
@@ -166,8 +171,11 @@ PRODUCT_COPY_FILES += \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/suplcerts.bks:system/etc/security/suplcerts.bks \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/voip_aud_params.bin:system/etc/voip_aud_params.bin \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/bcm4329.cal:system/etc/wifi/bcm4329.cal \\
+    vendor/__MANUFACTURER__/__DEVICE__/proprietary/libEGL_perfhud.so:system/lib/egl/libEGL_perfhud.so \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/libEGL_tegra.so:system/lib/egl/libEGL_tegra.so \\
+    vendor/__MANUFACTURER__/__DEVICE__/proprietary/libGLESv1_CM_perfhud.so:system/lib/egl/libGLESv1_CM_perfhud.so \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/libGLESv1_CM_tegra.so:system/lib/egl/libGLESv1_CM_tegra.so \\
+    vendor/__MANUFACTURER__/__DEVICE__/proprietary/libGLESv2_perfhud.so:system/lib/egl/libGLESv2_perfhud.so \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/libGLESv2_tegra.so:system/lib/egl/libGLESv2_tegra.so \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/camera.stingray.so:system/lib/hw/camera.stingray.so \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/gps.stingray.so:system/lib/hw/gps.stingray.so \\
@@ -175,6 +183,7 @@ PRODUCT_COPY_FILES += \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/hwcomposer.tegra.so:system/lib/hw/hwcomposer.tegra.so \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/libcgdrv.so:system/lib/libcgdrv.so \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/libims_client_jni.so:system/lib/libims_client_jni.so \\
+    vendor/__MANUFACTURER__/__DEVICE__/proprietary/libmoto_ecnswrapper.so:system/lib/libmoto_ecnswrapper.so \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/libnvddk_2d.so:system/lib/libnvddk_2d.so \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/libnvddk_2d_v2.so:system/lib/libnvddk_2d_v2.so \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/libnvddk_audiofx.so:system/lib/libnvddk_audiofx.so \\
@@ -205,6 +214,7 @@ PRODUCT_COPY_FILES += \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/libtpa_core.so:system/lib/libtpa_core.so \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/bootanimation-encrypted.zip:system/media/bootanimation-encrypted.zip \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/bootanimation.zip:system/media/bootanimation.zip \\
+    vendor/__MANUFACTURER__/__DEVICE__/proprietary/audio_effects.conf:system/vendor/etc/audio_effects.conf \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/fw_bcm4329_mfg.bin:system/vendor/firmware/fw_bcm4329_mfg.bin
 
 # All the apks necessary for stingray
