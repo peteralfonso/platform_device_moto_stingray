@@ -20,7 +20,7 @@ ROOTDEVICE=stingray
 DEVICE=stingray
 MANUFACTURER=moto
 
-for COMPANY in nvidia
+for COMPANY in nvidia broadcom
 do
   echo Processing files from $COMPANY
   rm -rf tmp
@@ -28,6 +28,13 @@ do
   mkdir -p $FILEDIR
   mkdir -p tmp/vendor/$MANUFACTURER/$ROOTDEVICE
   case $COMPANY in
+  broadcom)
+    TO_EXTRACT="\
+            system/etc/firmware/bcm4329.hcd \
+            system/etc/wifi/bcm4329.cal \
+            system/vendor/firmware/fw_bcm4329_mfg.bin
+            "
+    ;;
   nvidia)
     TO_EXTRACT="\
             system/etc/firmware/nvmm_aacdec.axf \

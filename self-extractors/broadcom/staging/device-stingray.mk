@@ -12,7 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-LOCAL_STEM := stingray/device-stingray.mk
+LOCAL_PATH := vendor/broadcom/stingray
 
-$(call inherit-product-if-exists, vendor/broadcom/$(LOCAL_STEM))
-$(call inherit-product-if-exists, vendor/nvidia/$(LOCAL_STEM))
+# Broadcom blobs necessary for wingray and stingray hardware
+PRODUCT_COPY_FILES := \
+    $(LOCAL_PATH)/proprietary/bcm4329.hcd:system/etc/firmware/bcm4329.hcd \
+    $(LOCAL_PATH)/proprietary/bcm4329.cal:system/etc/wifi/bcm4329.cal \
+    $(LOCAL_PATH)/proprietary/fw_bcm4329_mfg.bin:system/vendor/firmware/fw_bcm4329_mfg.bin
