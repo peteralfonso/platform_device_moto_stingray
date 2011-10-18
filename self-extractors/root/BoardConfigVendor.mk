@@ -14,4 +14,5 @@
 
 LOCAL_STEM := stingray/BoardConfigStingray.mk
 
+-include vendor/broadcom/$(LOCAL_STEM)
 -include vendor/nvidia/$(LOCAL_STEM)
