@@ -16,6 +16,7 @@ LOCAL_C_INCLUDES := \
 LOCAL_SHARED_LIBRARIES := liblog libcutils libhardware_legacy
 LOCAL_MODULE_PATH := $(TARGET_OUT)/bin
 LOCAL_MODULE := whisperd
+LOCAL_MODULE_TAGS := optional
 
 include $(BUILD_EXECUTABLE)
 
