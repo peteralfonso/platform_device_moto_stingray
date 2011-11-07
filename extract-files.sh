@@ -21,7 +21,6 @@ MANUFACTURER=moto
 
 mkdir -p ../../../vendor/$MANUFACTURER/$DEVICE/proprietary
 adb pull /system/app/AppDirectedSmsService.apk ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/AppDirectedSmsService.apk
-adb pull /system/app/BugToGo.apk ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/BugToGo.apk
 adb pull /system/app/MotoImsServer.apk ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/MotoImsServer.apk
 adb pull /system/app/MotoLocationProxy.apk ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/MotoLocationProxy.apk
 adb pull /system/app/MotoLteTelephony.apk ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/MotoLteTelephony.apk
@@ -37,7 +36,6 @@ adb pull /system/bin/bypassfactory ../../../vendor/$MANUFACTURER/$DEVICE/proprie
 adb pull /system/bin/ftmipcd ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/ftmipcd
 adb pull /system/bin/location ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/location
 adb pull /system/bin/savebpver ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/savebpver
-adb pull /system/bin/stagefright ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/stagefright
 adb pull /system/bin/tcmd ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/tcmd
 adb pull /system/etc/cpcap_gain.bin ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/cpcap_gain.bin
 adb pull /system/etc/firmware/bcm4329.hcd ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/bcm4329.hcd
@@ -141,7 +139,6 @@ PRODUCT_COPY_FILES += \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/ftmipcd:system/bin/ftmipcd \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/location:system/bin/location \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/savebpver:system/bin/savebpver \\
-    vendor/__MANUFACTURER__/__DEVICE__/proprietary/stagefright:system/bin/stagefright \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/tcmd:system/bin/tcmd \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/cpcap_gain.bin:system/etc/cpcap_gain.bin \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/bcm4329.hcd:system/etc/firmware/bcm4329.hcd \\
@@ -220,7 +217,6 @@ PRODUCT_COPY_FILES += \\
 # All the apks necessary for stingray
 PRODUCT_PACKAGES += \\
     AppDirectedSmsService \\
-    BugToGo \\
     MotoImsServer \\
     MotoLocationProxy \\
     MotoLteTelephony \\
@@ -258,18 +254,6 @@ LOCAL_PATH:=\$(call my-dir)
 include \$(CLEAR_VARS)
 
 LOCAL_MODULE := AppDirectedSmsService
-LOCAL_SRC_FILES := \$(LOCAL_MODULE).apk
-LOCAL_MODULE_CLASS := APPS
-LOCAL_MODULE_TAGS := optional
-LOCAL_CERTIFICATE := PRESIGNED
-LOCAL_MODULE_SUFFIX := \$(COMMON_ANDROID_PACKAGE_SUFFIX)
-include \$(BUILD_PREBUILT)
-
-# BugToGo
-
-include \$(CLEAR_VARS)
-
-LOCAL_MODULE := BugToGo
 LOCAL_SRC_FILES := \$(LOCAL_MODULE).apk
 LOCAL_MODULE_CLASS := APPS
 LOCAL_MODULE_TAGS := optional
