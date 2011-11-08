@@ -21,6 +21,8 @@ MANUFACTURER=moto
 
 mkdir -p ../../../vendor/$MANUFACTURER/$DEVICE/proprietary
 adb pull /system/app/AppDirectedSmsService.apk ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/AppDirectedSmsService.apk
+adb pull /system/app/ConnMO.apk ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/ConnMO.apk
+adb pull /system/app/DMService.apk ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/DMService.apk
 adb pull /system/app/MotoImsServer.apk ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/MotoImsServer.apk
 adb pull /system/app/MotoLocationProxy.apk ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/MotoLocationProxy.apk
 adb pull /system/app/MotoLteTelephony.apk ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/MotoLteTelephony.apk
@@ -76,6 +78,8 @@ adb pull /system/lib/hw/gps.stingray.so ../../../vendor/$MANUFACTURER/$DEVICE/pr
 adb pull /system/lib/hw/gralloc.tegra.so ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/gralloc.tegra.so
 adb pull /system/lib/hw/hwcomposer.tegra.so ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/hwcomposer.tegra.so
 adb pull /system/lib/libcgdrv.so ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/libcgdrv.so
+adb pull /system/lib/libdmengine.so ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/libdmengine.so
+adb pull /system/lib/libdmjavaplugin.so ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/libdmjavaplugin.so
 adb pull /system/lib/libims_client_jni.so ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/libims_client_jni.so
 adb pull /system/lib/libmoto_ecnswrapper.so ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/libmoto_ecnswrapper.so
 adb pull /system/lib/libnvddk_2d.so ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/libnvddk_2d.so
@@ -179,6 +183,8 @@ PRODUCT_COPY_FILES += \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/gralloc.tegra.so:system/lib/hw/gralloc.tegra.so \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/hwcomposer.tegra.so:system/lib/hw/hwcomposer.tegra.so \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/libcgdrv.so:system/lib/libcgdrv.so \\
+    vendor/__MANUFACTURER__/__DEVICE__/proprietary/libdmengine.so:system/lib/libdmengine.so \\
+    vendor/__MANUFACTURER__/__DEVICE__/proprietary/libdmjavaplugin.so:system/lib/libdmjavaplugin.so \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/libims_client_jni.so:system/lib/libims_client_jni.so \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/libmoto_ecnswrapper.so:system/lib/libmoto_ecnswrapper.so \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/libnvddk_2d.so:system/lib/libnvddk_2d.so \\
@@ -217,6 +223,8 @@ PRODUCT_COPY_FILES += \\
 # All the apks necessary for stingray
 PRODUCT_PACKAGES += \\
     AppDirectedSmsService \\
+    ConnMO \\
+    DMService \\
     MotoImsServer \\
     MotoLocationProxy \\
     MotoLteTelephony \\
@@ -254,6 +262,30 @@ LOCAL_PATH:=\$(call my-dir)
 include \$(CLEAR_VARS)
 
 LOCAL_MODULE := AppDirectedSmsService
+LOCAL_SRC_FILES := \$(LOCAL_MODULE).apk
+LOCAL_MODULE_CLASS := APPS
+LOCAL_MODULE_TAGS := optional
+LOCAL_CERTIFICATE := PRESIGNED
+LOCAL_MODULE_SUFFIX := \$(COMMON_ANDROID_PACKAGE_SUFFIX)
+include \$(BUILD_PREBUILT)
+
+# ConnMO
+
+include \$(CLEAR_VARS)
+
+LOCAL_MODULE := ConnMO
+LOCAL_SRC_FILES := \$(LOCAL_MODULE).apk
+LOCAL_MODULE_CLASS := APPS
+LOCAL_MODULE_TAGS := optional
+LOCAL_CERTIFICATE := PRESIGNED
+LOCAL_MODULE_SUFFIX := \$(COMMON_ANDROID_PACKAGE_SUFFIX)
+include \$(BUILD_PREBUILT)
+
+# DMService
+
+include \$(CLEAR_VARS)
+
+LOCAL_MODULE := DMService
 LOCAL_SRC_FILES := \$(LOCAL_MODULE).apk
 LOCAL_MODULE_CLASS := APPS
 LOCAL_MODULE_TAGS := optional

@@ -21,6 +21,8 @@ MANUFACTURER=moto
 
 mkdir -p ../../../vendor/$MANUFACTURER/$DEVICE/proprietary
 unzip -j -o ../../../${DEVICE}_update.zip system/app/AppDirectedSmsService.apk -d ../../../vendor/$MANUFACTURER/$DEVICE/proprietary
+unzip -j -o ../../../${DEVICE}_update.zip system/app/ConnMO.apk -d ../../../vendor/$MANUFACTURER/$DEVICE/proprietary
+unzip -j -o ../../../${DEVICE}_update.zip system/app/DMService.apk -d ../../../vendor/$MANUFACTURER/$DEVICE/proprietary
 unzip -j -o ../../../${DEVICE}_update.zip system/app/MotoImsServer.apk -d ../../../vendor/$MANUFACTURER/$DEVICE/proprietary
 unzip -j -o ../../../${DEVICE}_update.zip system/app/MotoLocationProxy.apk -d ../../../vendor/$MANUFACTURER/$DEVICE/proprietary
 unzip -j -o ../../../${DEVICE}_update.zip system/app/MotoLteTelephony.apk -d ../../../vendor/$MANUFACTURER/$DEVICE/proprietary
@@ -76,6 +78,8 @@ unzip -j -o ../../../${DEVICE}_update.zip system/lib/hw/gps.stingray.so -d ../..
 unzip -j -o ../../../${DEVICE}_update.zip system/lib/hw/gralloc.tegra.so -d ../../../vendor/$MANUFACTURER/$DEVICE/proprietary
 unzip -j -o ../../../${DEVICE}_update.zip system/lib/hw/hwcomposer.tegra.so -d ../../../vendor/$MANUFACTURER/$DEVICE/proprietary
 unzip -j -o ../../../${DEVICE}_update.zip system/lib/libcgdrv.so -d ../../../vendor/$MANUFACTURER/$DEVICE/proprietary
+unzip -j -o ../../../${DEVICE}_update.zip system/lib/libdmengine.so -d ../../../vendor/$MANUFACTURER/$DEVICE/proprietary
+unzip -j -o ../../../${DEVICE}_update.zip system/lib/libdmjavaplugin.so -d ../../../vendor/$MANUFACTURER/$DEVICE/proprietary
 unzip -j -o ../../../${DEVICE}_update.zip system/lib/libims_client_jni.so -d ../../../vendor/$MANUFACTURER/$DEVICE/proprietary
 unzip -j -o ../../../${DEVICE}_update.zip system/lib/libmoto_ecnswrapper.so -d ../../../vendor/$MANUFACTURER/$DEVICE/proprietary
 unzip -j -o ../../../${DEVICE}_update.zip system/lib/libnvddk_2d.so -d ../../../vendor/$MANUFACTURER/$DEVICE/proprietary
@@ -179,6 +183,8 @@ PRODUCT_COPY_FILES += \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/gralloc.tegra.so:system/lib/hw/gralloc.tegra.so \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/hwcomposer.tegra.so:system/lib/hw/hwcomposer.tegra.so \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/libcgdrv.so:system/lib/libcgdrv.so \\
+    vendor/__MANUFACTURER__/__DEVICE__/proprietary/libdmengine.so:system/lib/libdmengine.so \\
+    vendor/__MANUFACTURER__/__DEVICE__/proprietary/libdmjavaplugin.so:system/lib/libdmjavaplugin.so \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/libims_client_jni.so:system/lib/libims_client_jni.so \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/libmoto_ecnswrapper.so:system/lib/libmoto_ecnswrapper.so \\
     vendor/__MANUFACTURER__/__DEVICE__/proprietary/libnvddk_2d.so:system/lib/libnvddk_2d.so \\
@@ -217,6 +223,8 @@ PRODUCT_COPY_FILES += \\
 # All the apks necessary for stingray
 PRODUCT_PACKAGES += \\
     AppDirectedSmsService \\
+    ConnMO \\
+    DMService \\
     MotoImsServer \\
     MotoLocationProxy \\
     MotoLteTelephony \\
@@ -254,6 +262,30 @@ LOCAL_PATH:=\$(call my-dir)
 include \$(CLEAR_VARS)
 
 LOCAL_MODULE := AppDirectedSmsService
+LOCAL_SRC_FILES := \$(LOCAL_MODULE).apk
+LOCAL_MODULE_CLASS := APPS
+LOCAL_MODULE_TAGS := optional
+LOCAL_CERTIFICATE := PRESIGNED
+LOCAL_MODULE_SUFFIX := \$(COMMON_ANDROID_PACKAGE_SUFFIX)
+include \$(BUILD_PREBUILT)
+
+# ConnMO
+
+include \$(CLEAR_VARS)
+
+LOCAL_MODULE := ConnMO
+LOCAL_SRC_FILES := \$(LOCAL_MODULE).apk
+LOCAL_MODULE_CLASS := APPS
+LOCAL_MODULE_TAGS := optional
+LOCAL_CERTIFICATE := PRESIGNED
+LOCAL_MODULE_SUFFIX := \$(COMMON_ANDROID_PACKAGE_SUFFIX)
+include \$(BUILD_PREBUILT)
+
+# DMService
+
+include \$(CLEAR_VARS)
+
+LOCAL_MODULE := DMService
 LOCAL_SRC_FILES := \$(LOCAL_MODULE).apk
 LOCAL_MODULE_CLASS := APPS
 LOCAL_MODULE_TAGS := optional
