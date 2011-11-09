@@ -14,7 +14,7 @@
 
 LOCAL_PATH := vendor/broadcom/stingray
 
-# Broadcom blobs necessary for wingray and stingray hardware
+# Broadcom blobs necessary for stingray hardware
 PRODUCT_COPY_FILES := \
     $(LOCAL_PATH)/proprietary/bcm4329.hcd:system/etc/firmware/bcm4329.hcd \
     $(LOCAL_PATH)/proprietary/bcm4329.cal:system/etc/wifi/bcm4329.cal \

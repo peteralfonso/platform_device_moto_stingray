@@ -15,6 +15,8 @@
 #
 LOCAL_PATH := $(my-dir)
 
+ifeq (stingray,$(TARGET_DEVICE))
+
 include $(CLEAR_VARS)
 
 LOCAL_MODULE_TAGS := optional
@@ -25,3 +27,5 @@ LOCAL_SRC_FILES:= \
 LOCAL_MODULE := libpkip
 
 include $(BUILD_SHARED_LIBRARY)
+
+endif

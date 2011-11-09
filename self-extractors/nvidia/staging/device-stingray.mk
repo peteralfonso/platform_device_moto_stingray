@@ -14,7 +14,7 @@
 
 LOCAL_PATH := vendor/nvidia/stingray
 
-# NVIDIA blob necessary for wingray and stingray hardware
+# NVIDIA blob necessary for stingray hardware
 PRODUCT_COPY_FILES := \
     $(LOCAL_PATH)/proprietary/nvmm_aacdec.axf:system/etc/firmware/nvmm_aacdec.axf \
     $(LOCAL_PATH)/proprietary/nvddk_audiofx_core.axf:system/etc/firmware/nvddk_audiofx_core.axf \
