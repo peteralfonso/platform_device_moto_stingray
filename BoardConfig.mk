@@ -20,6 +20,20 @@
 # definition file).
 #
 
+ifeq ($(filter trygon calgon full_stingray tyranid stingray,$(TARGET_PRODUCT)),)
+$(warning The stingray device can only be used)
+$(warning with the following TARGET_PRODUCT:)
+$(warning trygon calgon full_stingray tyranid stingray)
+$(warning and you are using $(TARGET_PRODUCT).)
+$(warning If that's correct, you need to modify)
+$(warning the following files:)
+$(warning device/moto/stingray/BoardConfig.mk)
+$(warning device/moto/wingray/device_base.mk)
+$(warning and (if it comes from git))
+$(warning vendor/moto/stingray/stingray-vendor.mk)
+$(error unknown TARGET_PRODUCT for stingray)
+endif
+
 include device/moto/wingray/BoardConfig.mk
 BOARD_KERNEL_CMDLINE :=
 
