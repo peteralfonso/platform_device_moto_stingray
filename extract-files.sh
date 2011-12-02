@@ -30,6 +30,7 @@ adb pull /system/app/MotoModemUtil.apk ../../../vendor/$MANUFACTURER/$DEVICE/pro
 adb pull /system/app/MotoSimUiHelper.apk ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/MotoSimUiHelper.apk
 adb pull /system/app/StingrayProgramMenu.apk ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/StingrayProgramMenu.apk
 adb pull /system/app/StingrayProgramMenuSystem.apk ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/StingrayProgramMenuSystem.apk
+adb pull /system/app/UsbHelper.apk ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/UsbHelper.apk
 adb pull /system/bin/akmd2 ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/akmd2
 adb pull /system/bin/batch ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/batch
 adb pull /system/bin/brcm_guci_drv ../../../vendor/$MANUFACTURER/$DEVICE/proprietary/brcm_guci_drv
@@ -231,7 +232,8 @@ PRODUCT_PACKAGES += \\
     MotoModemUtil \\
     MotoSimUiHelper \\
     StingrayProgramMenu \\
-    StingrayProgramMenuSystem
+    StingrayProgramMenuSystem \\
+    UsbHelper
 
 EOF
 
@@ -370,6 +372,18 @@ include \$(BUILD_PREBUILT)
 include \$(CLEAR_VARS)
 
 LOCAL_MODULE := StingrayProgramMenuSystem
+LOCAL_SRC_FILES := \$(LOCAL_MODULE).apk
+LOCAL_MODULE_CLASS := APPS
+LOCAL_MODULE_TAGS := optional
+LOCAL_CERTIFICATE := PRESIGNED
+LOCAL_MODULE_SUFFIX := \$(COMMON_ANDROID_PACKAGE_SUFFIX)
+include \$(BUILD_PREBUILT)
+
+# UsbHelper
+
+include \$(CLEAR_VARS)
+
+LOCAL_MODULE := UsbHelper
 LOCAL_SRC_FILES := \$(LOCAL_MODULE).apk
 LOCAL_MODULE_CLASS := APPS
 LOCAL_MODULE_TAGS := optional
